@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Lighting } from './Lighting';
+import { Neighborhood } from '../world/Neighborhood';
 
 export class Scene {
   public instance: THREE.Scene;
@@ -22,13 +23,6 @@ export class Scene {
     plane.receiveShadow = true;
     this.instance.add(plane);
 
-    // A placeholder landmark (box)
-    const boxGeo = new THREE.BoxGeometry(2, 2, 2);
-    const boxMat = new THREE.MeshStandardMaterial({ color: 0xaa5555 });
-    const box = new THREE.Mesh(boxGeo, boxMat);
-    box.position.set(0, 1, -5);
-    box.castShadow = true;
-    box.receiveShadow = true;
-    this.instance.add(box);
+    new Neighborhood(this.instance);
   }
 }
