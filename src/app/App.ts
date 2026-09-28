@@ -34,11 +34,28 @@ export class App {
     this.container.appendChild(this.renderer.domElement);
     this.playerController = new PlayerController(this.camera.instance, document.body);
     
+    // Initialize persistence
+    const { db } = await import('../persistence/Database');
+    await db.init();
+    
     this.worldClock = new WorldClock();
     this.statusPanel = new StatusPanel();
 
-    for (const f of fixtures) {
-      npcRegistry.register(f);
+    const savedTime = await db.loadMeta('clock_time');
+    if (typeof savedTime === 'number') {
+      this.worldClock.time = savedTime;
+    }
+
+    const savedNpcs = await db.loadAllNpcs();
+    if (savedNpcs.length > 0) {
+      for (const npc of savedNpcs) {
+        npcRegistry.register(npc);
+      }
+    } else {
+      for (const f of fixtures) {
+        npcRegistry.register(f);
+        await db.saveNpc(f);
+      }
     }
 
     this.npcSimulation = new NpcSimulation(npcRegistry, this.worldClock, this.scene.instance);
@@ -67,6 +84,16 @@ export class App {
         alert(`Started conversation with ${target.name}`);
       }
     );
+
+    // Save state periodically (every 5 seconds)
+    setInterval(() => {
+      import('../persistence/Database').then(({ db }) => {
+        db.saveMeta('clock_time', this.worldClock.time);
+        for (const npc of npcRegistry.getAll()) {
+          db.saveNpc(npc);
+        }
+      });
+    }, 5000);
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
