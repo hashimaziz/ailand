@@ -19,6 +19,10 @@ export const fixtures: Npc[] = [
       speechStyle: ['casual', 'warm'],
       values: ['community', 'hard work'],
       dislikes: ['rudeness'],
+      voiceExamples: [
+        'Morning! The usual? You look like a long one.',
+        "I'm here six days a week. Ask anyone on the block.",
+      ],
       socialDisposition: 0.8,
       trustBaseline: 0.6
     },
@@ -41,6 +45,10 @@ export const fixtures: Npc[] = [
       speechStyle: ['short', 'direct'],
       values: ['efficiency'],
       dislikes: ['small talk'],
+      voiceExamples: [
+        'What do you need?',
+        "I open at eight. It'll still be there tomorrow.",
+      ],
       socialDisposition: 0.3,
       trustBaseline: 0.4
     },

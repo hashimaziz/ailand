@@ -14,6 +14,7 @@ const npc: Npc = {
     speechStyle: ['warm'],
     values: ['community'],
     dislikes: ['rudeness'],
+    voiceExamples: ['Morning! The usual?'],
     socialDisposition: 0.8,
     trustBaseline: 0.6,
   },

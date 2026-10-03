@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { promptBuilder } from '../../src/conversation/PromptBuilder';
+import { promptBuilder, relationshipGuidance } from '../../src/conversation/PromptBuilder';
 import { getModelConfig } from '../../src/ai/ModelConfig';
 import { maxPromptChars, CONTEXT_CHAR_BUDGETS } from '../../src/config/gameConfig';
 import { AssembledContext } from '../../src/conversation/ConversationTypes';
@@ -13,6 +13,7 @@ const sampleNpc: Npc = {
     speechStyle: ['warm'],
     values: ['community'],
     dislikes: ['rudeness'],
+    voiceExamples: ['Morning! The usual?'],
     socialDisposition: 0.8,
     trustBaseline: 0.6,
   },
@@ -104,5 +105,56 @@ describe('PromptBuilder', () => {
     expect(built.messages).toHaveLength(2);
     expect(built.messages[1].role).toBe('user');
     expect(built.sections.recentDialogue).toBe(0);
+  });
+
+  it('demonstrates the target voice instead of only prohibiting bad behaviour', () => {
+    const system = promptBuilder
+      .build(sampleContext(), [], 'Hello', getModelConfig())
+      .messages[0].content;
+
+    // Concrete instructions, not just negations.
+    expect(system).toContain('One to three short sentences');
+    expect(system).toContain('EXAMPLE');
+    // Guards against the assistant register and self-restarting behaviour.
+    expect(system).toContain('How can I help you?');
+    expect(system).toContain('introduce yourself once');
+  });
+
+  it('includes the NPC voice examples verbatim', () => {
+    const system = promptBuilder
+      .build(sampleContext(), [], 'Hello', getModelConfig())
+      .messages[0].content;
+
+    expect(system).toContain('Morning! The usual?');
+  });
+
+  it('renders occupations as prose rather than debug slugs', () => {
+    const system = promptBuilder
+      .build(sampleContext(), [], 'Hello', getModelConfig())
+      .messages[0].content;
+
+    expect(system).toContain('barista at the West Coffee Shop');
+    expect(system).not.toContain('Occupation: barista');
+  });
+});
+
+describe('relationshipGuidance', () => {
+  it('tells a stranger not to be over-familiar', () => {
+    expect(relationshipGuidance(0.15)).toContain('have not really spoken before');
+  });
+
+  it('tells an acquaintance not to re-introduce', () => {
+    expect(relationshipGuidance(0.3)).toContain('do not introduce yourself again');
+  });
+
+  it('tells a friend to skip the small talk', () => {
+    expect(relationshipGuidance(0.6)).toContain('do not re-introduce yourself');
+  });
+
+  it('varies the guidance with familiarity', () => {
+    const seen = new Set(
+      [0.1, 0.3, 0.6].map((f) => relationshipGuidance(f)),
+    );
+    expect(seen.size).toBe(3);
   });
 });

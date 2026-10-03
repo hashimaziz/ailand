@@ -7,6 +7,19 @@ export const LOCATION_LABELS: Record<string, string> = {
   shop: 'East Shop',
 };
 
+/** Human-readable occupations. Slugs like `barista` read as debug data in a prompt. */
+export const OCCUPATION_LABELS: Record<string, string> = {
+  barista: 'barista at the West Coffee Shop',
+  shopkeeper: 'owner of the East Shop',
+  mechanic: 'mechanic',
+  student: 'student',
+  retired: 'retired neighbour',
+  driver: 'delivery driver',
+  musician: 'musician',
+  officeworker: 'office worker',
+  dogwalker: 'dog walker',
+};
+
 export const CONVERSATION_CONFIG = {
   maxRecentTurns: 6,
   maxNewTokens: 128,

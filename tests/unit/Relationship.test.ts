@@ -17,6 +17,7 @@ const npc = {
     speechStyle: [],
     values: [],
     dislikes: [],
+    voiceExamples: [],
     socialDisposition: 0.8,
     trustBaseline: 0.6,
   },

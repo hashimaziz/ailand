@@ -8,6 +8,14 @@ export interface PersonalityProfile {
   speechStyle: string[];
   values: string[];
   dislikes: string[];
+  /**
+   * Example lines in this character's own voice.
+   *
+   * Small models imitate far more reliably than they obey abstract rules, so a
+   * couple of concrete sentences do more for consistency than a paragraph of
+   * adjectives. Kept short and bounded like the rest of the profile.
+   */
+  voiceExamples: string[];
   socialDisposition: number;
   trustBaseline: number;
 }
