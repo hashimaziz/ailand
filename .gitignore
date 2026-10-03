@@ -10,8 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 
-# Local GGUF weights — never commit model files
-models/
+# Local GGUF weights — never commit model files.
+# The directory itself is kept (with a .gitkeep) so a fresh clone still has
+# somewhere to put a model; only its contents are ignored.
+models/*
+!models/.gitkeep
+!models/README.md
 *.gguf
 dist-ssr
 *.local
