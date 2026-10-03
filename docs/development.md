@@ -22,6 +22,24 @@ type-checks before bundling, so a type error fails the build rather than shippin
 | `npx vitest run` | Vitest once, for CI-style checks |
 | `npm run test:e2e` | Playwright (no specs exist yet) |
 
+## The dev server and port 5173
+
+`npm run dev` uses `strictPort`, so if something is already on 5173 it fails with
+`Error: Port 5173 is already in use` rather than quietly starting on 5174. That
+matters: a stale server left running is invisible, the app still works, but on a
+port nothing else is watching — and anything pointed at 5173 breaks for no visible
+reason.
+
+If you hit that error, find and stop the old server:
+
+```bash
+lsof -nP -iTCP:5173 -sTCP:LISTEN
+kill <pid>
+```
+
+Check what is listening before killing anything. Other projects on this machine
+run their own servers on other ports, and they are not ours to stop.
+
 ## Model selection
 
 **Use the startup menu.** Open the app and you get a screen to pick the model, the
