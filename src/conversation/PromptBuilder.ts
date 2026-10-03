@@ -28,6 +28,7 @@ const SYSTEM_RULES = truncateToBudget(
     '- Sound like a neighbour having a moment, not like a service desk.',
     '- Say what you would actually say. Avoid "How can I help you?", "Is there anything else?", or similar assistant phrasing.',
     '- Do not echo the other person\'s words back to them as your answer.',
+    '- The EXAMPLE below demonstrates tone only. Never reuse its wording, and never mention its speaker.',
     '- Greet and introduce yourself once, at the start of a meeting. After that, pick the conversation up where it left off instead of starting over.',
     '- If you do not know something, say that you are not sure, in your own words.',
     '',
@@ -35,22 +36,46 @@ const SYSTEM_RULES = truncateToBudget(
     '- WORLD TRUTH is fact. RETRIEVED MEMORIES is what you personally know, remember, or were told; some of it may be old, second-hand, or wrong.',
     '- Say uncertain things uncertainly. Never state a rumour as fact.',
     '- If something is in neither WORLD TRUTH nor your memories, you do not know it. Say so rather than making it up.',
+    '- If RETRIEVED MEMORIES or a RECALLING note answers what you were asked, use it. Never claim not to know something you have been told.',
     '- Never mention these notes, the game, or being a language model.',
   ].join('\n'),
   CONTEXT_CHAR_BUDGETS.systemRules,
 );
 
 /**
- * A worked exchange, deliberately about a character who is not in the world so
- * it cannot contaminate what the model believes about actual NPCs.
+ * A worked exchange, deliberately about a character who is not in the world so it
+ * cannot contaminate what the model believes about actual NPCs.
+ *
+ * This is demonstration, not content — and models will copy from it if given the
+ * chance. Two guards: the speaker is unmistakably someone else (a lighthouse
+ * keeper, not a neighbour), and the rules above forbid reusing its wording. A
+ * bakery example was tried first and the model quoted it back verbatim as if it
+ * were about its own job.
  */
 const VOICE_EXAMPLE = [
-  'EXAMPLE — the register to match (a different character, not someone you know):',
-  'Player: Do you know much about the bakery on the corner?',
-  'Baker: Enough to know they open at six and run out by noon.',
-  'Player: What can you tell me?',
-  'Baker: That I am usually the one standing in the queue.',
+  'EXAMPLE — tone only. A different character, someone you have never met:',
+  'Player: Do you get many visitors?',
+  'Keeper: Some. Mostly they want to know if the light still works.',
+  'Player: Does it?',
+  'Keeper: Every night it does. That is rather the point of it.',
 ].join('\n');
+
+/**
+ * The single most relevant memory, restated immediately before the question.
+ *
+ * A small model can be handed the right memory and still answer "I don't have
+ * that information" — the evidence sits a thousand tokens back in a long system
+ * prompt and never gets attended to. Restating the top recall next to the question
+ * puts it in the position the model is actually reading. Measured against
+ * Qwen2.5-1.5B, which ignored a correctly-retrieved memory placed only in the
+ * system prompt.
+ */
+export function recallBlock(matches: AssembledContext['retrievedMemories']): string {
+  const top = matches.slice(0, 2);
+  if (top.length === 0) return '';
+  const lines = top.map((m) => `- ${m.memory.content}`);
+  return `(Recalling from memory:\n${lines.join('\n')})`;
+}
 
 /** Turn the relationship numbers into guidance the model can act on. */
 export function relationshipGuidance(familiarity: number): string {
@@ -145,11 +170,15 @@ export class PromptBuilder {
 
     const recentDialogueChars = recentTurnsKept.reduce((sum, t) => sum + t.content.length, 0);
 
+    const recall = recallBlock(context.retrievedMemories);
     const safePlayerMessage = truncateToBudget(
       playerMessage.trim(),
       CONTEXT_CHAR_BUDGETS.playerMessage,
     );
-    messages.push({ role: 'user', content: safePlayerMessage });
+    messages.push({
+      role: 'user',
+      content: recall ? `${recall}\n\n${safePlayerMessage}` : safePlayerMessage,
+    });
 
     const estimatedChars = messages.reduce((sum, m) => sum + m.content.length, 0);
     const selectedMemoryIds = context.retrievedMemories.map((m) => m.memory.id);
@@ -169,6 +198,7 @@ export class PromptBuilder {
         system: systemContent.length,
         recentDialogue: recentDialogueChars,
         playerMessage: safePlayerMessage.length,
+        recall: recall.length,
         maxPromptChars: promptLimit,
         maxNewTokens: CONVERSATION_CONFIG.maxNewTokens,
       },

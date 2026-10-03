@@ -59,6 +59,8 @@ configuration shape:
 | `?mockAi=1` | Equivalent to choosing the mock model source |
 | `?realAi=1` | Equivalent to choosing the local model source |
 | `?model=<key>` | Preselect a candidate (e.g. `qwen3-1.7b`). Unknown keys are ignored. |
+| `?runtime=llama` | Use a local llama.cpp server |
+| `?serverUrl=...` | Point at a non-default llama.cpp server |
 | `?device=wasm` | Preselect CPU (WASM) inference |
 | `?webgl=1` | Preselect the WebGL2 renderer |
 | `?bench=1` | Preselect benchmark mode |
@@ -68,6 +70,33 @@ The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
 hundred megabytes on first real-model run — about 543 MB for the 0.6B candidate,
 1360 MB for the 1.7B one. Transformers.js caches it in the browser, so subsequent
 runs reuse it.
+
+### The local llama.cpp runtime
+
+Optional, and it is where the good models live. Start a server first:
+
+```bash
+llama-server -m ~/path/to/model.gguf --port 8080 --host 127.0.0.1 -c 4096 -ngl 0
+```
+
+`-ngl 0` keeps it on the CPU. Then choose **Local llama.cpp server** on the
+startup screen; the menu says whether a server answered before you commit. Any
+OpenAI-compatible server works — `node-llama-cpp` exposes one too.
+
+Good small instruct models in GGUF, verified present on Hugging Face:
+`bartowski/Qwen2.5-3B-Instruct-GGUF` (Q4_K_M, 1840 MB),
+`bartowski/Llama-3.2-3B-Instruct-GGUF` (Q4_K_M), and the official
+`Qwen/Qwen2.5-3B-Instruct-GGUF`.
+
+Useful flags once it is running:
+
+```bash
+curl -s http://127.0.0.1:8080/health
+curl -s http://127.0.0.1:8080/v1/models      # note: {"models":[{"name":...}]}, not OpenAI's data[]
+```
+
+Only one slot serves requests at a time by default, so a second tab will queue
+behind a streaming generation.
 
 ### Low GPU memory
 
@@ -134,6 +163,8 @@ tests/unit/Relationship.test.ts      relationship defaults, clamping, bounded de
 tests/unit/ThinkingFilter.test.ts    reasoning-strip stream filter, incl. split tags
 tests/unit/ModelBenchmark.test.ts    quality scorer, fixtures, model candidates
 tests/unit/StartupScreen.test.ts      config resolution, startup screen, progress
+tests/unit/LlamaServer.test.ts        SSE decoding at any chunk size, runtime config
+tests/unit/InteractionController.test.ts  horizontal distance/cone geometry
 ```
 
 `MemoryProcessor` depends on a narrow `MemoryPersistence` port rather than

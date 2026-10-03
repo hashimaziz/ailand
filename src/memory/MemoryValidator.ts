@@ -123,7 +123,9 @@ export function normalizeCandidate(raw: unknown): {
     reasons.push(`content exceeds ${MEMORY_CONFIG.maxContentChars} characters, truncated`);
   }
 
-  if (!type || !source) {
+  // An empty value is never recoverable, and truncation routinely leaves one
+  // behind. Dropping it here keeps stubs out of the candidate list entirely.
+  if (!content || !type || !source) {
     return { candidate: null, reasons };
   }
 

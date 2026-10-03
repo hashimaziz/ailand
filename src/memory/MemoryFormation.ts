@@ -30,6 +30,62 @@ const EXTRACTION_SYSTEM_PROMPT = [
   '- Return empty arrays if nothing is worth remembering.',
 ].join('\n');
 
+/**
+ * Schema the extraction response must satisfy.
+ *
+ * llama.cpp can constrain decoding to this, which turns memory extraction from
+ * hopeful parsing into a guarantee. The in-browser runtimes ignore it and rely on
+ * `parseExtractionResponse`, which is why that stays defensive.
+ */
+export const MEMORY_EXTRACTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['memories', 'relationship_updates'],
+  properties: {
+    memories: {
+      type: 'array',
+      maxItems: 3,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['type', 'content', 'importance', 'confidence', 'source'],
+        properties: {
+          type: { type: 'string', enum: ['episodic', 'belief', 'rumor', 'relationship'] },
+          content: { type: 'string', minLength: 8, maxLength: 400 },
+          importance: { type: 'number', minimum: 0, maximum: 1 },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          source: { type: 'string', enum: ['player', 'npc', 'observation', 'inference'] },
+          entities: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+          locationId: { type: 'string' },
+        },
+      },
+    },
+    relationship_updates: {
+      type: 'array',
+      maxItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['delta'],
+        properties: {
+          delta: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              familiarity: { type: 'number', minimum: -1, maximum: 1 },
+              trust: { type: 'number', minimum: -1, maximum: 1 },
+              affection: { type: 'number', minimum: -1, maximum: 1 },
+              tension: { type: 'number', minimum: -1, maximum: 1 },
+            },
+          },
+          labels: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+          reason: { type: 'string', maxLength: 120 },
+        },
+      },
+    },
+  },
+} as const;
+
 export interface ExtractionRequest {
   npc: Npc;
   turns: DialogueTurn[];
@@ -79,6 +135,7 @@ export function extractionGenerationConfig(): {
   topP: number;
   topK: number;
   doSample: boolean;
+  jsonSchema?: Record<string, unknown>;
 } {
   return {
     maxNewTokens: MEMORY_CONFIG.extractionMaxNewTokens,
@@ -86,26 +143,28 @@ export function extractionGenerationConfig(): {
     topP: 0.9,
     topK: 40,
     doSample: true,
+    // Honoured by llama.cpp; ignored by the in-browser runtimes.
+    jsonSchema: MEMORY_EXTRACTION_SCHEMA as unknown as Record<string, unknown>,
   };
 }
 
-/**
- * Pull the first complete JSON object out of a model response.
- *
- * Small models wrap JSON in prose or code fences even when told not to, so this
- * locates the outermost braces rather than trusting the response to be clean.
- */
-export function extractJsonObject(text: string): unknown | null {
-  const withoutFences = text.replace(/```(?:json)?/gi, ' ');
-  const start = withoutFences.indexOf('{');
-  if (start === -1) return null;
+interface JsonScan {
+  stack: string[];
+  inString: boolean;
+  /** Index of the opening quote of the string being read, when inside one. */
+  stringStart: number;
+  /** Index just past the closing brace of the outermost object, when complete. */
+  complete: number;
+}
 
-  let depth = 0;
+function scanJson(text: string): JsonScan {
+  const stack: string[] = [];
   let inString = false;
+  let stringStart = -1;
   let escaped = false;
 
-  for (let i = start; i < withoutFences.length; i++) {
-    const char = withoutFences[i];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
 
     if (escaped) {
       escaped = false;
@@ -116,25 +175,84 @@ export function extractJsonObject(text: string): unknown | null {
       continue;
     }
     if (char === '"') {
-      inString = !inString;
+      if (inString) {
+        inString = false;
+      } else {
+        inString = true;
+        stringStart = i;
+      }
       continue;
     }
     if (inString) continue;
 
-    if (char === '{') depth++;
-    else if (char === '}') {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(withoutFences.slice(start, i + 1));
-        } catch {
-          return null;
-        }
+    if (char === '{' || char === '[') stack.push(char);
+    else if (char === '}' || char === ']') {
+      stack.pop();
+      if (stack.length === 0) {
+        return { stack, inString, stringStart, complete: i + 1 };
       }
     }
   }
 
-  return null;
+  return { stack, inString, stringStart, complete: -1 };
+}
+
+function closeOpen(text: string, stack: string[]): string {
+  let out = text;
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']';
+  }
+  return out;
+}
+
+function tryParse(json: string): unknown | null {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pull the first complete JSON object out of a model response.
+ *
+ * Small models wrap JSON in prose or code fences even when told not to, so this
+ * locates the outermost braces rather than trusting the response to be clean.
+ *
+ * Truncated output is repaired rather than discarded. A model that hits the token
+ * limit mid-object still produced usable information, and throwing all of it away
+ * because the final brace is missing means an NPC silently forgets the
+ * conversation. Two repairs are attempted: close what is still open, and — when
+ * the cut landed inside a string, leaving an incomplete key or value — drop that
+ * trailing fragment and close again. Anything still unparseable returns null.
+ */
+export function extractJsonObject(text: string): unknown | null {
+  const withoutFences = text.replace(/```(?:json)?/gi, ' ');
+  const start = withoutFences.indexOf('{');
+  if (start === -1) return null;
+
+  const body = withoutFences.slice(start);
+  const scan = scanJson(body);
+
+  if (scan.complete !== -1) return tryParse(body.slice(0, scan.complete));
+  if (scan.stack.length === 0 && !scan.inString) return null;
+
+  // Cut inside a string: drop the incomplete trailing member and close again.
+  // Preferred over closing the string, because a half-written value would
+  // otherwise be persisted as a garbage memory.
+  if (scan.inString) {
+    const fragmentStart = body.lastIndexOf(',', scan.stringStart);
+    const boundary = fragmentStart > 0 ? fragmentStart : body.lastIndexOf('{', scan.stringStart);
+    if (boundary > 0) {
+      const trimmed = body.slice(0, boundary);
+      const rescanned = scanJson(trimmed);
+      const dropped = tryParse(closeOpen(trimmed, rescanned.stack));
+      if (dropped !== null) return dropped;
+    }
+  }
+
+  const closed = closeOpen(body, scan.stack);
+  return tryParse(scan.inString ? `${body}"${closed.slice(body.length)}` : closed);
 }
 
 function normalizeDelta(raw: unknown): RelationshipDelta {

@@ -5,6 +5,7 @@ import { DeferredLanguageModel } from './ai/DeferredLanguageModel';
 import { createLanguageModel } from './ai/createLanguageModel';
 import { detectCapabilities } from './ai/ModelCapabilities';
 import { describeModelLoadError } from './ai/ModelErrors';
+import { isLlamaServerAvailable } from './ai/createLanguageModel';
 import {
   AppConfig,
   configFromSearch,
@@ -86,6 +87,10 @@ async function main(): Promise<void> {
     await loadModelAndStart(container, config, screen);
   });
   screen.setCapabilities(capabilities);
+
+  // Probe once so the menu can say whether the local server is actually there,
+  // rather than letting the player find out after pressing Start.
+  screen.setLlamaServerStatus(await isLlamaServerAvailable(initial.llamaServerUrl));
 }
 
 main().catch((err) => {

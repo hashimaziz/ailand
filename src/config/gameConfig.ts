@@ -42,8 +42,11 @@ export const MEMORY_CONFIG = {
   /** A conversation shorter than this is not worth an extraction round-trip. */
   minConversationChars: 80,
   minPlayerTurns: 1,
-  /** Structured extraction budget. Generous enough for a small JSON envelope. */
-  extractionMaxNewTokens: 224,
+  /**
+   * Structured extraction budget. Generous enough for a JSON envelope with a
+   * couple of memories; too small and the response truncates mid-object.
+   */
+  extractionMaxNewTokens: 320,
   extractionTemperature: 0.3,
   /** Candidates below this importance are treated as chatter and dropped. */
   minImportance: 0.25,

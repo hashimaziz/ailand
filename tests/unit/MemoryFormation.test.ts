@@ -83,8 +83,12 @@ describe('extractJsonObject', () => {
     expect(extractJsonObject('I could not find anything worth saving.')).toBeNull();
   });
 
-  it('returns null for truncated JSON', () => {
-    expect(extractJsonObject('{"memories":[{"content":"half')).toBeNull();
+  it('repairs truncated JSON rather than discarding it', () => {
+    // Losing a whole extraction because the final brace is missing meant an NPC
+    // silently forgot the conversation.
+    expect(extractJsonObject('{"memories":[{"content":"half"}')).toEqual({
+      memories: [{ content: 'half' }],
+    });
   });
 });
 
@@ -166,5 +170,60 @@ describe('parseExtractionResponse', () => {
     );
     expect(result!.relationshipUpdates).toHaveLength(0);
     expect(result!.warnings.join(' ')).toContain('no usable deltas');
+  });
+});
+
+describe('extractJsonObject truncation repair', () => {
+  // Complete candidate objects throughout: a candidate missing `source` is
+  // rejected as malformed, which would mask what these tests are about.
+  const COMPLETE =
+    '{"type":"episodic","content":"Alex moved in","importance":0.8,' +
+    '"confidence":0.9,"source":"player","entities":["alex"]}';
+
+  it('keeps a complete value whose closers were cut off', () => {
+    expect(extractJsonObject('{"memories":[{"content":"Alex moved in"}')).toEqual({
+      memories: [{ content: 'Alex moved in' }],
+    });
+  });
+
+  it('closes an object cut off between members', () => {
+    const truncated = `{"memories":[${COMPLETE}],"relationship_updates":[]`;
+    const result = extractJsonObject(truncated) as any;
+    expect(result.memories).toHaveLength(1);
+    expect(result.relationship_updates).toEqual([]);
+  });
+
+  it('never resurrects a value cut mid-word', () => {
+    const truncated = `{"memories":[${COMPLETE},{"type":"belief","content":"cut off mid-sen`;
+    const result = extractJsonObject(truncated) as any;
+    // The repair yields syntactically valid JSON, so a content-less stub remains
+    // here; rejecting it is the parser's job. What must not survive is the
+    // fragment itself.
+    expect(JSON.stringify(result)).not.toContain('mid-sen');
+    expect(result.memories[0].content).toBe('Alex moved in');
+  });
+
+  it('recovers the complete memory through the whole pipeline', () => {
+    const truncated = `{"memories":[${COMPLETE},{"type":"belief","content":"cut off mid-sen`;
+    const parsed = parseExtractionResponse(truncated);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.memories).toHaveLength(1);
+    expect(parsed!.memories[0].type).toBe('episodic');
+    expect(parsed!.memories[0].source).toBe('player');
+    // The stub left by the cut is reported, not silently dropped.
+    expect(parsed!.rejected.length).toBe(1);
+  });
+
+  it('degrades to a valid result instead of failing the turn', () => {
+    // Everything usable was lost, but a parseable response reporting "nothing
+    // proposed" is not an error — the conversation simply is not remembered.
+    const parsed = parseExtractionResponse('{"memories":[{"type":"episodic","content":"cut mid-sen');
+    expect(parsed).not.toBeNull();
+    expect(parsed!.memories).toHaveLength(0);
+  });
+
+  it('still returns null when there is nothing to parse', () => {
+    expect(extractJsonObject('no json at all')).toBeNull();
+    expect(extractJsonObject('')).toBeNull();
   });
 });

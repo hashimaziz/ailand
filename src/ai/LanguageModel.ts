@@ -34,6 +34,15 @@ export interface GenerationConfig {
   topP: number;
   topK: number;
   doSample: boolean;
+  /**
+   * JSON Schema the response must satisfy.
+   *
+   * Runtimes with constrained decoding (llama.cpp) can enforce this, which turns
+   * structured extraction from "parse and hope" into a guarantee. Runtimes without
+   * it ignore the field; `ContextBudget`-style defensive parsing stays in place for
+   * those.
+   */
+  jsonSchema?: Record<string, unknown>;
 }
 
 export interface GenerationUsage {

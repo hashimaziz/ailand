@@ -46,6 +46,12 @@ Each option shows its download size up front, and the model is fetched and
 initialised *before* the world loads — with byte-level progress, so a slow
 download is visibly making progress rather than looking frozen.
 
+**Model runtime** is also a choice. *In this browser* needs no setup. *Local
+llama.cpp server* uses a `llama-server` running on your machine, which lifts the
+GPU-memory ceiling, allows a 1.5B–3B model instead of 0.6B, and supports
+schema-constrained decoding so memory extraction is reliable. See
+[`docs/development.md`](docs/development.md#the-local-llamacpp-runtime).
+
 **Inference** and **Rendering** are separate because GPU memory is the scarce
 resource. Inference can run on the CPU via WASM, which is slower but does not
 touch the GPU at all; rendering can be forced to WebGL2, which stops Three.js

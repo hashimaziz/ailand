@@ -1,7 +1,14 @@
 import { MODEL_CONFIGS, getModelConfig, dtypeNote, resolveModelConfig } from '../ai/ModelConfig';
 import { CapabilityReport, formatBytes, gpuBudgetWarnings } from '../ai/ModelCapabilities';
 import { ProgressEvent } from '../ai/LanguageModel';
-import { AppConfig, AiSource, InferDevice, RenderBackend } from '../config/appConfig';
+import {
+  AppConfig,
+  AiSource,
+  DEFAULT_LLAMA_SERVER_URL,
+  InferDevice,
+  ModelRuntime,
+  RenderBackend,
+} from '../config/appConfig';
 
 export interface ModelChoice {
   key: string;
@@ -72,6 +79,8 @@ export class StartupScreen {
   private useMockBtn: HTMLButtonElement;
   private modelSelect: HTMLSelectElement;
   private sourceSelect: HTMLSelectElement;
+  private runtimeSelect: HTMLSelectElement;
+  private serverUrlInput: HTMLInputElement;
   private deviceSelect: HTMLSelectElement;
   private renderSelect: HTMLSelectElement;
   private warnEl: HTMLElement;
@@ -94,6 +103,19 @@ export class StartupScreen {
         <p class="startup__tagline">A neighbourhood of persistent characters, with the language model running in your browser.</p>
 
         <form class="startup__form">
+          <label class="startup__field">
+            <span class="startup__label">Model runtime</span>
+            <select class="startup__select startup__runtime">
+              <option value="browser">In this browser (WebGPU or WASM) — no setup</option>
+              <option value="llamaServer">Local llama.cpp server — larger models, needs the server running</option>
+            </select>
+          </label>
+
+          <label class="startup__field startup__field--server">
+            <span class="startup__label">llama.cpp server</span>
+            <input type="text" class="startup__input startup__server-url" spellcheck="false" />
+          </label>
+
           <label class="startup__field">
             <span class="startup__label">Model</span>
             <select class="startup__select startup__model"></select>
@@ -166,6 +188,8 @@ export class StartupScreen {
     this.useMockBtn = q<HTMLButtonElement>('.startup__use-mock');
     this.modelSelect = q<HTMLSelectElement>('.startup__model');
     this.sourceSelect = q<HTMLSelectElement>('.startup__source');
+    this.runtimeSelect = q<HTMLSelectElement>('.startup__runtime');
+    this.serverUrlInput = q<HTMLInputElement>('.startup__server-url');
     this.deviceSelect = q<HTMLSelectElement>('.startup__device');
     this.renderSelect = q<HTMLSelectElement>('.startup__render');
     this.warnEl = q('.startup__warnings');
@@ -175,13 +199,18 @@ export class StartupScreen {
     this.loadingEl.hidden = true;
 
     this.populateModels();
+    this.serverUrlInput.value = initial.llamaServerUrl;
+    this.runtimeSelect.value = initial.runtime;
     this.modelSelect.value = initial.modelKey;
     this.sourceSelect.value = initial.aiSource;
     this.deviceSelect.value = initial.inferDevice;
     this.renderSelect.value = initial.renderBackend;
     this.benchInput.checked = initial.runBenchmark;
+    this.applyRuntimeVisibility();
 
     for (const el of [
+      this.runtimeSelect,
+      this.serverUrlInput,
       this.modelSelect,
       this.sourceSelect,
       this.deviceSelect,
@@ -227,11 +256,31 @@ export class StartupScreen {
     return {
       modelKey: this.modelSelect.value,
       aiSource: this.sourceSelect.value as AiSource,
+      runtime: this.runtimeSelect.value as ModelRuntime,
+      llamaServerUrl: this.serverUrlInput.value.trim() || DEFAULT_LLAMA_SERVER_URL,
       inferDevice: this.deviceSelect.value as InferDevice,
       renderBackend: this.renderSelect.value as RenderBackend,
       runBenchmark: this.benchInput.checked,
     };
   }
+
+  /** The server URL and browser-only controls are irrelevant per runtime. */
+  private applyRuntimeVisibility(): void {
+    const onServer = this.runtimeSelect.value === 'llamaServer';
+    (this.serverUrlInput.closest('.startup__field') as HTMLElement).hidden = !onServer;
+    for (const selector of ['.startup__source', '.startup__device', '.startup__model']) {
+      const field = this.root.querySelector(selector)!.closest('.startup__field') as HTMLElement;
+      field.hidden = onServer;
+    }
+  }
+
+  /** Record whether a local llama.cpp server answered, for the menu note. */
+  public setLlamaServerStatus(available: boolean | null): void {
+    this.llamaServerAvailable = available;
+    this.renderNote();
+  }
+
+  private llamaServerAvailable: boolean | null = null;
 
   /** Switch from the settings form to the download/progress view. */
   public showLoading(message: string): void {
@@ -325,6 +374,23 @@ export class StartupScreen {
     const config = this.currentConfig();
     const notes: string[] = [];
     const warnings: string[] = [];
+
+    if (config.runtime === 'llamaServer') {
+      notes.push(
+        `Talks to a llama.cpp server at ${config.llamaServerUrl}. The server supplies the model, so no download happens here.`,
+      );
+      if (this.llamaServerAvailable === false) {
+        warnings.push(
+          `No llama.cpp server answered at ${config.llamaServerUrl}. Start one (see docs/development.md) or switch back to the in-browser runtime.`,
+        );
+      }
+      if (config.runBenchmark) {
+        warnings.push('Benchmarking uses the in-browser models; the llama.cpp runtime is not benchmarked.');
+      }
+      this.noteEl.textContent = notes.join(' ');
+      this.renderWarnings(warnings);
+      return;
+    }
 
     const cpuRequested = config.inferDevice === 'wasm';
     const choice = modelChoices(cpuRequested ? 'wasm' : 'webgpu').find(

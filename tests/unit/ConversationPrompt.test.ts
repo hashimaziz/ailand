@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { promptBuilder, relationshipGuidance } from '../../src/conversation/PromptBuilder';
+import {
+  promptBuilder,
+  recallBlock,
+  relationshipGuidance,
+} from '../../src/conversation/PromptBuilder';
 import { getModelConfig } from '../../src/ai/ModelConfig';
 import { maxPromptChars, CONTEXT_CHAR_BUDGETS } from '../../src/config/gameConfig';
 import { AssembledContext } from '../../src/conversation/ConversationTypes';
@@ -135,6 +139,60 @@ describe('PromptBuilder', () => {
 
     expect(system).toContain('barista at the West Coffee Shop');
     expect(system).not.toContain('Occupation: barista');
+  });
+});
+
+describe('recallBlock', () => {
+  const memory = (id: string, content: string) => ({
+    memory: {
+      id,
+      npcId: 'npc_1',
+      type: 'episodic' as const,
+      content,
+      importance: 0.8,
+      confidence: 0.9,
+      source: 'player' as const,
+      entities: ['player'],
+      createdAt: 0,
+      lastAccessedAt: 0,
+    },
+    score: 0.5,
+    reasons: ['entity_match'],
+  });
+
+  it('is empty when there is nothing to recall', () => {
+    expect(recallBlock([])).toBe('');
+  });
+
+  it('restates at most two memories', () => {
+    const block = recallBlock([
+      memory('1', 'Alex moved into the apartments.'),
+      memory('2', 'Alex works at the hospital.'),
+      memory('3', 'Alex likes the park.'),
+    ]);
+    expect(block).toContain('Alex moved into the apartments.');
+    expect(block).toContain('Alex works at the hospital.');
+    expect(block).not.toContain('Alex likes the park.');
+  });
+
+  it('sits in the final user turn, immediately before the question', () => {
+    const context = {
+      ...sampleContext(),
+      retrievedMemories: [memory('1', 'Alex moved into the apartments.')],
+    };
+    const built = promptBuilder.build(context, [], 'Do you remember where I live?', getModelConfig());
+    const last = built.messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.content).toContain('Alex moved into the apartments.');
+    expect(last.content).toContain('Do you remember where I live?');
+    expect(last.content.endsWith('Do you remember where I live?')).toBe(true);
+    expect(built.sections.recall).toBeGreaterThan(0);
+  });
+
+  it('leaves the player message untouched when nothing was retrieved', () => {
+    const built = promptBuilder.build(sampleContext(), [], 'Do you remember where I live?', getModelConfig());
+    expect(built.messages.at(-1)!.content).toBe('Do you remember where I live?');
+    expect(built.sections.recall).toBe(0);
   });
 });
 

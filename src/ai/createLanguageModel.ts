@@ -4,7 +4,7 @@ import { resolveModelConfig } from './ModelConfig';
 import { getConfig } from '../config/appConfig';
 import { LanguageModel, ProgressEvent } from './LanguageModel';
 
-export type LanguageModelKind = 'worker' | 'mock';
+export type LanguageModelKind = 'worker' | 'mock' | 'llamaServer';
 
 export interface CreateLanguageModelResult {
   model: LanguageModel;
@@ -47,6 +47,15 @@ export async function createLanguageModel(options?: {
   const config = getConfig();
   const modelKey = options?.modelKey ?? config.modelKey;
 
+  if (config.runtime === 'llamaServer') {
+    const { LlamaServerLanguageModel } = await import('./LlamaServerLanguageModel');
+    return {
+      model: new LlamaServerLanguageModel({ url: config.llamaServerUrl }),
+      kind: 'llamaServer',
+      resolvedModelId: `llama.cpp server at ${config.llamaServerUrl}`,
+    };
+  }
+
   if (config.aiSource === 'mock') {
     return { model: new MockLanguageModel(), kind: 'mock' };
   }
@@ -74,6 +83,12 @@ export async function createLanguageModel(options?: {
   };
 }
 
+/** Is a local llama.cpp server reachable? Used by the startup screen. */
+export async function isLlamaServerAvailable(url?: string): Promise<boolean> {
+  const { LlamaServerLanguageModel } = await import('./LlamaServerLanguageModel');
+  return LlamaServerLanguageModel.isAvailable(url ?? getConfig().llamaServerUrl);
+}
+
 /**
  * Construct a model and initialise it, falling back to the mock when the browser
  * cannot run the real one.
@@ -95,7 +110,7 @@ export async function createReadyLanguageModel(options?: {
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (config.aiSource === 'local') {
+    if (config.aiSource === 'local' || config.runtime === 'llamaServer') {
       throw err;
     }
     console.warn('[AI] Local model failed to load, using mock:', message);

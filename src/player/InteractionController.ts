@@ -7,16 +7,78 @@ export interface Interactable {
   name: string;
 }
 
+export interface PickOptions {
+  maxDistance: number;
+  /** Half-angle of the facing cone, in radians. */
+  maxAngle: number;
+}
+
+export interface PickInput {
+  cameraPosition: { x: number; y: number; z: number };
+  cameraDirection: { x: number; y: number; z: number };
+  targets: Interactable[];
+}
+
+/**
+ * Choose the interactable the player is facing.
+ *
+ * Distance and angle are both measured **horizontally**. The previous version
+ * compared against the target's full position, which sits at knee height on an NPC
+ * mesh: walking right up to someone put them below the eyeline and outside the
+ * facing cone, so the prompt refused to appear when you were closest. That made
+ * interaction depend on stopping at exactly the right distance.
+ *
+ * Pure and side-effect free so the geometry can be tested without a scene.
+ */
+export function pickInteractionTarget(
+  input: PickInput,
+  options: PickOptions,
+): Interactable | null {
+  const { cameraPosition: cam, cameraDirection: dir, targets } = input;
+
+  // Flatten the look direction; looking up or down should not change whether an
+  // NPC is interactable.
+  const forwardLength = Math.hypot(dir.x, dir.z);
+  if (forwardLength === 0) return null;
+  const fx = dir.x / forwardLength;
+  const fz = dir.z / forwardLength;
+  const minDot = Math.cos(options.maxAngle);
+
+  let best: Interactable | null = null;
+  let bestDistance = options.maxDistance;
+
+  for (const target of targets) {
+    const dx = target.position.x - cam.x;
+    const dz = target.position.z - cam.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > bestDistance) continue;
+
+    if (distance > 0.001) {
+      const dot = (dx * fx + dz * fz) / distance;
+      if (dot < minDot) continue;
+    }
+
+    // Nearest wins, so overlapping interactables resolve predictably.
+    bestDistance = distance;
+    best = target;
+  }
+
+  return best;
+}
+
 export class InteractionController {
   public currentTarget: Interactable | null = null;
-  private interactDistance = 4.0;
-  private interactables: Interactable[];
   private enabled = true;
+  private maxDistance = 4.0;
+  private maxAngle = 0.25;
+  private interactables: Interactable[];
+  private cameraPosition = new THREE.Vector3();
+  private cameraDirection = new THREE.Vector3();
 
   constructor(
-    private camera: THREE.Camera, 
+    private camera: THREE.Camera,
     interactables: Interactable[],
-    private onInteract: (target: Interactable) => void
+    private onInteract: (target: Interactable) => void,
   ) {
     this.interactables = interactables;
     document.addEventListener('keydown', (e) => {
@@ -39,38 +101,25 @@ export class InteractionController {
   }
 
   public update() {
-    // In a real app we'd cast against physics bodies or a BVH. 
-    // Here we do a simple distance and angle check against known interactables for simplicity of prototype.
-    
-    let bestTarget: Interactable | null = null;
-    let minDistance = this.interactDistance;
+    this.camera.getWorldPosition(this.cameraPosition);
+    this.camera.getWorldDirection(this.cameraDirection);
 
-    const cameraPos = new THREE.Vector3();
-    const cameraDir = new THREE.Vector3();
-    this.camera.getWorldPosition(cameraPos);
-    this.camera.getWorldDirection(cameraDir);
+    this.currentTarget = pickInteractionTarget(
+      {
+        cameraPosition: this.cameraPosition,
+        cameraDirection: this.cameraDirection,
+        targets: this.interactables,
+      },
+      { maxDistance: this.maxDistance, maxAngle: this.maxAngle },
+    );
 
-    for (const target of this.interactables) {
-      const dist = cameraPos.distanceTo(target.position);
-      if (dist < minDistance) {
-        const dirToTarget = new THREE.Vector3().subVectors(target.position, cameraPos).normalize();
-        const angle = cameraDir.angleTo(dirToTarget);
-        // within ~15 degrees
-        if (angle < 0.25) {
-          minDistance = dist;
-          bestTarget = target;
-        }
-      }
-    }
-
-    this.currentTarget = bestTarget;
     this.updateIndicator();
   }
 
   private updateIndicator() {
     const el = document.getElementById('interaction-indicator');
     if (!el) return;
-    
+
     if (this.currentTarget) {
       el.style.display = 'block';
       el.innerText = `[E] Talk to ${this.currentTarget.name}`;

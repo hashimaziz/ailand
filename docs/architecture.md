@@ -138,6 +138,34 @@ Two defences, in order of importance:
 If a generation yields nothing but reasoning, the worker reports an explicit error
 rather than leaving an empty reply.
 
+### Two runtimes
+
+The `LanguageModel` contract has two implementations, chosen at startup:
+
+| Runtime | Model | Setup | Notes |
+| --- | --- | --- | --- |
+| `browser` | Transformers.js in a Web Worker, ONNX q4f16/q4 | None | WebGPU, or WASM on the CPU |
+| `llamaServer` | GGUF on a `llama-server` on this machine | Server must be running | No GPU ceiling; supports schema-constrained decoding |
+
+`LlamaServerLanguageModel` talks to the server's OpenAI-compatible endpoint over
+SSE and streams through the same `LanguageModel` events, so nothing upstream —
+conversation, memory formation, the UI — knows which runtime is in use. The
+`LlamaStreamDecoder` is a pure incremental parser, tested independently of any
+network: chunk boundaries land mid-JSON and mid-`data:` prefix in practice.
+
+The local runtime is an **upgrade, not a requirement**. If no server answers,
+`llama-server` is reported unavailable on the startup screen and the browser
+runtime is used, so the project still runs with no setup.
+
+Two things it does that the browser runtime cannot:
+
+- **Schema-constrained decoding.** Extraction sends
+  `response_format: { type: 'json_object', schema }`, so llama.cpp constrains the
+  grammar. Verified against a live server: enums, bounds and required fields are
+  all respected. The browser runtimes ignore it and rely on tolerant parsing.
+- **A larger model.** The browser path is capped by GPU memory at 0.6B for many
+  machines; a 1.5B–3B GGUF fits comfortably on CPU.
+
 `createLanguageModel` selects an implementation:
 
 | Condition | Result |
@@ -339,7 +367,26 @@ Recorded per the instruction in the plan to document deviations as they arise.
     as levers, and documented as a known limitation. This is a real gap in earlier
     releases rather than a new bug, and it should have been flagged when Safari
     first came up rather than discovered this way.
-15. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
+15. **A small model ignores memories it was given.** With Qwen2.5-1.5B, retrieval
+    worked correctly — the memory about the player was ranked first in
+    `RETRIEVED MEMORIES` — and the model still answered "I'm sorry, but I don't
+    have that information". The evidence sat ~1.5 KB back in a long system prompt
+    and was never attended to. Restating the top recall immediately before the
+    question fixed it. Measured A/B against the live model: with the recall note,
+    "Of course, I remember. You live in a cozy apartment above a bakery"; without
+    it, "I don't have any information". **Retrieval quality and model compliance
+    are separate problems** — a green retrieval test would not have caught this.
+16. **Interaction distance depended on stopping in the right spot.** The facing
+    check compared against an NPC mesh's full position, which sits at knee height,
+    so walking right up to someone put them below the eyeline and outside the 15°
+    cone — the prompt refused to appear when the player was closest. Distance and
+    angle are now measured horizontally, and the geometry is a pure tested
+    function.
+17. **Truncated JSON was treated as total failure.** Extraction that ran into the
+    token limit mid-object returned nothing at all, so an NPC silently forgot the
+    conversation. The parser now closes what is open, and drops a value cut
+    mid-word rather than storing a fragment.
+18. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
     flex containers, so setting `.hidden = true` had no effect and both phases
     rendered at once. Fixed with a `[hidden] { display: none !important }` reset.
     Worth remembering for any future phase-based UI.

@@ -66,6 +66,10 @@ Deferred, and why:
   (tick the benchmark box on the startup screen), so this is reduced to running it
   once in a WebGPU browser and recording the result. It should be recorded in this
   file when it is done.
+- **Benchmarking the local runtime** — the quality scorer covers the in-browser
+  models only. Running the same set through a local server would give the first
+  real evidence for which model to use, which is the open question the 0.6B/1.7B
+  problem exposed.
 - **Verifying a second browser** — everything so far has been exercised in
   Chromium. Safari works for rendering, but local model inference there is
   untested and has already failed with a GPU allocation error on a 1.7B model.

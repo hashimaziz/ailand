@@ -36,6 +36,16 @@ export interface ConversationUiCallbacks {
   onMemoryFormation?: (record: MemoryProposalRecord) => void;
 }
 
+/** Remove labels that merely echo the NPC's own traits or speech style. */
+function dropPersonalityWords(labels: string[], npc: Npc): string[] {
+  const own = new Set(
+    [...npc.personality.traits, ...npc.personality.speechStyle, ...npc.personality.values].map((w) =>
+      w.toLowerCase(),
+    ),
+  );
+  return labels.filter((label) => !own.has(label.toLowerCase()));
+}
+
 export class ConversationManager {
   private session: ConversationSession | null = null;
   private phase: ConversationPhase = 'idle';
@@ -326,10 +336,13 @@ export class ConversationManager {
 
     const parsed = parseExtractionResponse(raw);
     if (!parsed) {
+      console.warn(
+        `[MEMORY] extraction from ${npc.identity.name} was unparseable (${raw.length} chars): ${JSON.stringify(raw.slice(0, 200))}`,
+      );
       this.ui.onMemoryFormation?.({
         npcId: npc.id,
         proposals: [],
-        error: 'could not parse structured extraction output',
+        error: `could not parse structured extraction output (${raw.length} characters)`,
         durationMs: performance.now() - startTime,
       });
       return;
@@ -339,7 +352,15 @@ export class ConversationManager {
     const outcome: MemoryFormationOutcome = await this.memoryProcessor.process({
       npc,
       candidates: parsed.memories,
-      relationshipUpdates: parsed.relationshipUpdates,
+      // A label that just restates the NPC's own personality carries no
+      // relationship information — models reach for whatever adjectives are in the
+      // prompt, which produced labels like ["friendly", "observant"].
+      relationshipUpdates: parsed.relationshipUpdates.map((update) => ({
+        ...update,
+        labels: update.labels
+          ? dropPersonalityWords(update.labels, npc)
+          : undefined,
+      })),
       currentRelationship,
       worldTime: this.getWorldTime(),
       warnings: parsed.warnings,

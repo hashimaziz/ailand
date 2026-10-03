@@ -10,6 +10,19 @@ import { DEFAULT_MODEL_KEY, isKnownModelKey } from '../ai/ModelConfig';
 export type AiSource = 'auto' | 'local' | 'mock';
 
 /**
+ * Which runtime hosts the model.
+ *
+ * `browser` is the default and needs no setup: Transformers.js in a Web Worker,
+ * downloading weights into the browser. `llamaServer` uses a llama.cpp server on
+ * this machine, which lifts the GPU-memory ceiling and allows a larger model, but
+ * requires the server to be running. If it is not, the browser runtime is used
+ * instead, so this is an upgrade rather than a requirement.
+ */
+export type ModelRuntime = 'browser' | 'llamaServer';
+
+export const DEFAULT_LLAMA_SERVER_URL = 'http://127.0.0.1:8080';
+
+/**
  * Where inference runs.
  *
  * `wasm` is slower but allocates outside the GPU, which is the difference
@@ -27,6 +40,8 @@ export type RenderBackend = 'auto' | 'webgl2';
 export interface AppConfig {
   modelKey: string;
   aiSource: AiSource;
+  runtime: ModelRuntime;
+  llamaServerUrl: string;
   inferDevice: InferDevice;
   renderBackend: RenderBackend;
   runBenchmark: boolean;
@@ -35,6 +50,8 @@ export interface AppConfig {
 export const DEFAULT_APP_CONFIG: AppConfig = {
   modelKey: DEFAULT_MODEL_KEY,
   aiSource: 'auto',
+  runtime: 'browser',
+  llamaServerUrl: DEFAULT_LLAMA_SERVER_URL,
   inferDevice: 'auto',
   renderBackend: 'auto',
   runBenchmark: false,
@@ -59,6 +76,8 @@ export function setConfig(next: Partial<AppConfig>): AppConfig {
       ? (next.modelKey ?? current.modelKey)
       : DEFAULT_APP_CONFIG.modelKey,
     aiSource: next.aiSource ?? current.aiSource,
+    runtime: next.runtime ?? current.runtime,
+    llamaServerUrl: next.llamaServerUrl ?? current.llamaServerUrl,
     inferDevice: next.inferDevice ?? current.inferDevice,
     renderBackend: next.renderBackend ?? current.renderBackend,
     runBenchmark: next.runBenchmark ?? current.runBenchmark,
@@ -90,6 +109,10 @@ export function configFromSearch(search: string): Partial<AppConfig> {
   return {
     ...(isKnownModelKey(modelKey ?? '') ? { modelKey: modelKey as string } : {}),
     ...(aiSource ? { aiSource } : {}),
+    ...(params.get('runtime') === 'llama' || params.get('runtime') === 'browser'
+      ? { runtime: params.get('runtime') === 'llama' ? ('llamaServer' as const) : ('browser' as const) }
+      : {}),
+    ...(params.get('serverUrl') ? { llamaServerUrl: params.get('serverUrl') as string } : {}),
     ...(device === 'wasm' || device === 'webgpu' ? { inferDevice: device } : {}),
     ...(params.get('webgl') === '1' ? { renderBackend: 'webgl2' } : {}),
     ...(params.get('bench') === '1' ? { runBenchmark: true } : {}),
