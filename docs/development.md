@@ -24,17 +24,24 @@ type-checks before bundling, so a type error fails the build rather than shippin
 
 ## Model selection
 
-The dialogue model is selected at runtime by `src/ai/createLanguageModel.ts`.
-Two query parameters override detection, which is useful for development and for
-keeping test runs free of model downloads:
+**Use the startup menu.** Open the app and you get a screen to pick the model, the
+model source, and whether to benchmark — with the download size shown before you
+commit. The chosen model is then downloaded and initialised *before* the world
+loads, with byte-level progress.
+
+The choice is remembered between reloads. The runtime reads it from
+`src/config/appConfig.ts`; nothing else decides which model is in use.
+
+Query parameters exist for automation and deep links, and are folded into the same
+configuration shape:
 
 | URL | Behaviour |
 | --- | --- |
-| `?mockAi=1` | Always use `MockLanguageModel` |
-| `?realAi=1` | Skip capability detection and attempt the real download |
-| `?model=<key>` | Use a specific candidate from `MODEL_CONFIGS` (e.g. `qwen3-1.7b`). Unknown keys are ignored. |
-| `?bench=1` | Benchmark every candidate and print a comparison to the console |
-| *(none)* | Real model when WebGPU is available, otherwise fall back to the mock and say why |
+| `?autoStart=1` | Skip the menu and boot straight into the configured setup |
+| `?mockAi=1` | Equivalent to choosing the mock model source |
+| `?realAi=1` | Equivalent to choosing the local model source |
+| `?model=<key>` | Preselect a candidate (e.g. `qwen3-1.7b`). Unknown keys are ignored. |
+| `?bench=1` | Preselect benchmark mode |
 
 The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
 `src/ai/ModelConfig.ts` for the candidate set. Expect a download of several
@@ -95,6 +102,7 @@ tests/unit/MemoryProcessor.test.ts   accept/reject/merge/supersede/prune policy
 tests/unit/Relationship.test.ts      relationship defaults, clamping, bounded deltas
 tests/unit/ThinkingFilter.test.ts    reasoning-strip stream filter, incl. split tags
 tests/unit/ModelBenchmark.test.ts    quality scorer, fixtures, model candidates
+tests/unit/StartupScreen.test.ts      config resolution, startup screen, progress
 ```
 
 `MemoryProcessor` depends on a narrow `MemoryPersistence` port rather than
@@ -111,10 +119,10 @@ The deterministic checks that matter most, and how to run them:
 
 1. `npm run build` completes with no type errors.
 2. `npx vitest run` passes with no model download.
-3. `npm run dev`, open `http://localhost:5173/?mockAi=1`, click the canvas to
-   capture the mouse, walk north toward the apartments until `[E] Talk to Maria`
-   appears, press `E`, and send a message. The reply streams in and lands in the
-   transcript.
+3. `npm run dev`, open `http://localhost:5173`, pick **Mock** as the model source,
+   and press Start. Click the canvas to capture the mouse, walk north toward the
+   apartments until `[E] Talk to Maria` appears, press `E`, and send a message.
+   The reply streams in and lands in the transcript.
 4. Send a second message and press **Cancel reply** mid-stream. The partial reply
    is kept in the transcript and the composer becomes usable again.
 5. Close the conversation and expand the **Memory** panel in the bottom-left. Every
@@ -125,7 +133,8 @@ The deterministic checks that matter most, and how to run them:
 
 Headless browser automation cannot capture the pointer, so any Playwright test
 must stub `pointerLockElement` or the game needs a non-pointer-locked entry
-point.
+point. It also cannot get a WebGPU adapter, so `?autoStart=1&mockAi=1` is the
+entry point for deterministic runs.
 
 ## Conventions
 
@@ -139,3 +148,5 @@ point.
 - Commits are logical units of work, named `feat:`, `fix:`, `refactor:`, `perf:`,
   `test:`, `chore:`, and each should leave the app buildable and testable.
 - Record deviations from the plan in [`architecture.md`](./architecture.md).
+- Never initialise a model inside a factory that a caller needs to observe; return
+  it uninitialised so progress callbacks can be attached first.

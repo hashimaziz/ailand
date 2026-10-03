@@ -13,11 +13,11 @@ import { MemoryProposalPanel } from '../ui/MemoryProposalPanel';
 import { buildSeedMemories } from '../memory/seedMemories';
 import { memoryStore } from '../memory/MemoryStore';
 import { ConversationManager } from '../conversation/ConversationManager';
-import { createLanguageModel, isBenchmarkRequested } from '../ai/createLanguageModel';
+import { isBenchmarkRequested } from '../ai/createLanguageModel';
 import { runBenchmark } from '../ai/benchmarkMode';
-import { DeferredLanguageModel } from '../ai/DeferredLanguageModel';
 import { getModelConfig } from '../ai/ModelConfig';
 import { LanguageModel } from '../ai/LanguageModel';
+import { AppConfig } from '../config/appConfig';
 import * as THREE from 'three';
 
 export class App {
@@ -32,11 +32,18 @@ export class App {
   private dialoguePanel!: DialoguePanel;
   private memoryPanel!: MemoryProposalPanel;
   private conversationManager!: ConversationManager;
-  private languageModel!: LanguageModel;
   private modelStatusNote = '';
   private lastFrameMs = 0;
 
-  constructor(private container: HTMLElement) {}
+  /**
+   * @param languageModel Already resolved and initialised by the startup flow, so
+   *   the world never appears while a model is still downloading.
+   */
+  constructor(
+    private container: HTMLElement,
+    private languageModel: LanguageModel,
+    private appConfig: AppConfig,
+  ) {}
 
   public async initialize(): Promise<void> {
     this.container.innerHTML = '';
@@ -77,9 +84,14 @@ export class App {
     this.npcSimulation = new NpcSimulation(npcRegistry, this.worldClock, this.scene.instance);
     this.npcSimulation.initializeVisuals();
 
-    const modelConfig = getModelConfig();
-    this.languageModel = new DeferredLanguageModel(() => this.createModel());
-    this.modelStatusNote = 'Language model loading in background…';
+    const modelConfig = getModelConfig(this.appConfig.modelKey);
+    // Report what is actually loaded, not what was requested: the configured
+    // model may have been swapped for the mock by capability fallback.
+    const info = this.languageModel.getModelInfo?.();
+    this.modelStatusNote =
+      info && info.id !== 'mock-model'
+        ? `Model: ${info.id} (${info.dtype}/${info.device})`
+        : 'Mock dialogue model — no local model loaded';
 
     this.conversationManager = new ConversationManager(
       this.languageModel,
@@ -142,33 +154,28 @@ export class App {
     console.log('App started.');
     this.loop();
 
-    // Start loading the language model after the first frame so the world is
-    // interactive while the model downloads.
+    // The model is already loaded by the startup flow; this is a cheap no-op
+    // that also recovers if the player hit "retry".
     void this.warmUpLanguageModel();
 
     if (isBenchmarkRequested()) {
+      // Benchmarks build their own workers per candidate, so skip the normal
+      // warm-up: running both at once doubles the downloads and contends for
+      // the same GPU.
       void runBenchmark();
     }
   }
 
-  private async createModel(): Promise<LanguageModel> {
-    const { model, kind, fallbackReason } = await createLanguageModel({
-      onProgress: (event) => {
-        this.modelStatusNote = event.message ?? 'Loading model…';
-        this.refreshStatus();
-      },
-    });
-    this.modelStatusNote =
-      kind === 'mock'
-        ? fallbackReason ?? 'Mock dialogue model (add ?realAi=1 for WebGPU model)'
-        : `Model ready (${model.getModelInfo?.()?.id ?? getModelConfig().id})`;
-    this.refreshStatus();
-    return model;
-  }
-
+  /**
+   * Recover from a failed load without reloading the page.
+   *
+   * Disposing drops the underlying worker, so the next `initialize()` builds a
+   * fresh one — a cached download makes this quick.
+   */
   private async warmUpLanguageModel(): Promise<void> {
     try {
       await this.languageModel.initialize();
+      this.refreshStatus();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.modelStatusNote = `Language model unavailable: ${message}`;

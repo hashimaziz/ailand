@@ -6,6 +6,36 @@ implementation diverges from it, the divergence is recorded in
 [Deviations and findings](#deviations-and-findings) below and in
 [`roadmap.md`](./roadmap.md).
 
+## Startup
+
+The application does not begin in the world. On load it shows a startup screen
+(`src/ui/StartupScreen.ts`) with two phases:
+
+1. **Configure.** Model candidate, model source (automatic / local / mock), and a
+   benchmark toggle. Each model option shows its dtype, device, and approximate
+   download size. Capability detection runs up front, so a browser without WebGPU
+   is told so *before* committing to a 1.3 GB download.
+2. **Load.** If a real model is selected, it is downloaded and initialised here,
+   with byte-level progress, then the world loads.
+
+Only after the model is ready does the world appear. Fetching the model as a
+background task once the game was already running left the player walking into a
+neighbourhood and then getting stuck on "Loading AI" — no progress, no way to tell
+whether it was working, and no way out.
+
+Configuration lives in one place, `src/config/appConfig.ts`. The startup menu
+writes it, the AI runtime reads it, and `createLanguageModel` no longer parses the
+URL. Query parameters are folded into the same shape for automation and deep
+links, so both entry paths converge. Choices are remembered in `localStorage`.
+
+Failure is explicit. A load that fails leaves the startup screen up with the
+reason, a **Try again** button, and a **Use the mock model instead** button — no
+reload required. Selecting "local model" explicitly will *not* silently fall back
+to the mock, because quietly changing what is being tested is worse than an error.
+
+`AiWorkerClient` also enforces a stall timeout: 120 s with no message from the
+worker fails the load with an explanation rather than waiting indefinitely.
+
 ## Layer boundaries
 
 The rendering layer never imports the AI layer. The AI runtime is reachable only
@@ -19,7 +49,7 @@ main.ts
        ├─ world/     Neighborhood · LocationRegistry · WorldClock
        ├─ player/    PlayerController · InteractionController
        ├─ npc/       NpcRegistry · NpcSimulation · Relationship · fixtures
-       ├─ ui/        StatusPanel · DialoguePanel · MemoryProposalPanel
+       ├─ ui/        StartupScreen · StatusPanel · DialoguePanel · MemoryProposalPanel
        ├─ persistence/Database                                 (IndexedDB via idb)
        ├─ conversation/ ConversationManager
        │    ├─ ContextAssembler ── MemoryRetriever ── MemoryStore ── Database
@@ -275,6 +305,16 @@ Recorded per the instruction in the plan to document deviations as they arise.
 12. **Prompt rules alone do not hold a small model in character.** See
     [Prompt design](#prompt-design). Negations are weakly represented at this
     size; demonstrations and concrete register instructions do the work.
+13. **Eagerly initialising in a factory hides progress by construction.**
+    `createLanguageModel` used to `await` the load itself, so a caller could not
+    register `onProgress` until loading had already finished — no progress events
+    were ever delivered. It now returns an uninitialised model and the caller
+    drives initialisation. Found by instrumenting the startup screen and observing
+    zero progress events during a real 260 MB download.
+14. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
+    flex containers, so setting `.hidden = true` had no effect and both phases
+    rendered at once. Fixed with a `[hidden] { display: none !important }` reset.
+    Worth remembering for any future phase-based UI.
 
 ## Known gaps at this milestone
 
@@ -285,7 +325,10 @@ Recorded per the instruction in the plan to document deviations as they arise.
 - Retrieval has no relevance floor, so low-scoring memories still reach the
   prompt; the plan's memory-selectivity evaluation would not yet pass.
 - No end-to-end test suite; `playwright.config.ts` points at a `tests/e2e/`
-  directory that does not exist yet.
+  directory that does not exist yet. `?autoStart=1` exists for when it does.
+- Forcing "local model" in a browser without WebGPU downloads the weights before
+  failing, because the user explicitly asked to skip detection. The menu warns
+  about this first, but it is still a wasted download.
 - Player collision is a bounding box only; the player walks through buildings.
 - `Math.random()` is used for NPC mesh colours, so appearance is not reproducible
   from a seed (the plan calls for a fixed world seed).

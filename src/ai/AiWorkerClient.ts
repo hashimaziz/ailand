@@ -13,6 +13,12 @@ import {
 } from './LanguageModel';
 import type { WorkerInMessage, WorkerOutMessage } from './WorkerProtocol';
 
+/**
+ * How long the worker may report nothing before the load is considered failed.
+ * Long enough to tolerate a slow connection or a silent WebGPU graph compile.
+ */
+const STALL_TIMEOUT_MS = 120_000;
+
 export class AiWorkerClient implements LanguageModel {
   private worker: Worker | null = null;
   private modelInfo: ModelInfo | null = null;
@@ -29,6 +35,9 @@ export class AiWorkerClient implements LanguageModel {
   private initReject: ((err: Error) => void) | null = null;
   private initPromise: Promise<ModelInfo> | null = null;
   private progressCallback: ((event: any) => void) | null = null;
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastActivityAt = 0;
+  private downloadComplete = false;
 
   constructor(private config: ModelConfig) {}
 
@@ -50,12 +59,17 @@ export class AiWorkerClient implements LanguageModel {
       { type: 'module' }
     );
 
+    this.downloadComplete = false;
+    this.lastActivityAt = performance.now();
+
     this.worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
+      this.lastActivityAt = performance.now();
       this.handleWorkerMessage(event.data);
     };
 
     this.worker.onerror = (err) => {
       console.error('[AiWorkerClient] Worker error:', err);
+      this.clearStallTimer();
       this.initPromise = null;
       if (this.initReject) {
         this.initReject(new Error(`Worker error: ${err.message}`));
@@ -63,6 +77,8 @@ export class AiWorkerClient implements LanguageModel {
         this.initResolve = null;
       }
     };
+
+    this.armStallTimer();
 
     this.initPromise = new Promise<ModelInfo>((resolve, reject) => {
       this.initResolve = resolve;
@@ -74,8 +90,50 @@ export class AiWorkerClient implements LanguageModel {
       return await this.initPromise;
     } catch (err) {
       this.initPromise = null;
+      this.clearStallTimer();
       throw err;
     }
+  }
+
+  /**
+   * Fail loudly instead of waiting forever.
+   *
+   * A download that stalls, or a WebGPU initialisation that never completes,
+   * used to leave the UI showing "Loading AI" indefinitely with no way out. The
+   * allowance is generous once the weights have arrived, because graph
+   * compilation is genuinely slow and silent.
+   */
+  private armStallTimer(): void {
+    this.clearStallTimer();
+    this.stallTimer = setTimeout(() => {
+      if (this.ready) return;
+      const seconds = Math.round((performance.now() - this.lastActivityAt) / 1000);
+      const message = this.downloadComplete
+        ? `Model initialisation stalled after ${seconds}s. The browser may have run out of GPU memory.`
+        : `Model download stalled after ${seconds}s. Check your connection and try again.`;
+      console.error('[AiWorkerClient]', message);
+      this.terminate();
+      this.initPromise = null;
+      this.initReject?.(new Error(message));
+      this.initReject = null;
+      this.initResolve = null;
+    }, STALL_TIMEOUT_MS);
+  }
+
+  private clearStallTimer(): void {
+    if (this.stallTimer !== null) {
+      clearTimeout(this.stallTimer);
+      this.stallTimer = null;
+    }
+  }
+
+  /** Kill the worker and reset state so a later initialize() starts clean. */
+  private terminate(): void {
+    this.worker?.terminate();
+    this.worker = null;
+    this.ready = false;
+    this.modelInfo = null;
+    this.clearStallTimer();
   }
 
   async generate(
@@ -136,8 +194,7 @@ export class AiWorkerClient implements LanguageModel {
       // Give the worker a moment, then terminate
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          this.worker?.terminate();
-          this.worker = null;
+          this.terminate();
           resolve();
         }, 3000);
 
@@ -145,8 +202,7 @@ export class AiWorkerClient implements LanguageModel {
         this.worker!.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
           if (event.data.type === 'disposed') {
             clearTimeout(timeout);
-            this.worker?.terminate();
-            this.worker = null;
+            this.terminate();
             resolve();
           } else if (originalHandler) {
             (originalHandler as any)(event);
@@ -154,8 +210,7 @@ export class AiWorkerClient implements LanguageModel {
         };
       });
     }
-    this.ready = false;
-    this.modelInfo = null;
+    this.terminate();
     this.initPromise = null;
     this.initResolve = null;
     this.initReject = null;
@@ -178,14 +233,21 @@ export class AiWorkerClient implements LanguageModel {
   private handleWorkerMessage(msg: WorkerOutMessage) {
     switch (msg.type) {
       case 'progress':
+        if (msg.phase === 'initialize') {
+          this.downloadComplete = true;
+        }
         this.progressCallback?.({
           phase: msg.phase,
           progress: msg.progress,
           message: msg.message,
+          loadedBytes: msg.loadedBytes,
+          totalBytes: msg.totalBytes,
+          file: msg.file,
         });
         break;
 
       case 'ready':
+        this.clearStallTimer();
         this.modelInfo = msg.model;
         this.ready = true;
         if (this.initResolve) {

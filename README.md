@@ -34,15 +34,28 @@ enabled for local inference.
 The dialogue model is a few hundred megabytes and is downloaded on first use and
 cached by the browser. The world is fully explorable while it downloads.
 
+### Choosing a model
+
+The app opens on a startup screen. Pick a model, pick where it comes from
+(automatic, local, or a scripted mock), and press Start. Each option shows its
+download size up front, and the model is fetched and initialised *before* the
+world loads — with byte-level progress, so a slow download is visibly making
+progress rather than looking frozen.
+
+If the model cannot load, the startup screen stays up with the reason and offers a
+retry or a switch to the mock model, so you are never stuck.
+
 ### URL flags
+
+These exist for automation and deep links; the startup menu is the normal path.
 
 | Flag | Effect |
 | --- | --- |
-| `?mockAi=1` | Use the deterministic mock model. No download, no WebGPU needed. |
-| `?realAi=1` | Force the real model download even if WebGPU detection fails. |
-| `?model=<key>` | Try a different model candidate, e.g. `?model=qwen3-1.7b`. |
-| `?bench=1` | Benchmark every model candidate and log a comparison to the console. |
-| *(none)* | Real model when WebGPU is available, otherwise mock, with the reason shown. |
+| `?autoStart=1` | Skip the menu and boot straight away. |
+| `?mockAi=1` | Equivalent to choosing the mock model source. |
+| `?realAi=1` | Equivalent to choosing the local model source. |
+| `?model=<key>` | Preselect a candidate, e.g. `?model=qwen3-1.7b`. |
+| `?bench=1` | Preselect benchmark mode. |
 
 ### Controls
 

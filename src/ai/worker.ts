@@ -40,12 +40,22 @@ async function handleInit(config: ModelConfig) {
       device: config.device,
       dtype: config.dtype ?? undefined,
       progress_callback: (event: any) => {
-        if (event.status === 'progress' && typeof event.progress === 'number') {
+        if (event.status === 'progress') {
           post({
             type: 'progress',
             phase: 'download',
-            progress: event.progress / 100,
-            message: event.file ? `Downloading ${event.file}` : undefined,
+            progress: typeof event.progress === 'number' ? event.progress / 100 : undefined,
+            message: event.file ? `Downloading ${event.file}` : 'Downloading model files',
+            file: typeof event.file === 'string' ? event.file : undefined,
+            loadedBytes: typeof event.loaded === 'number' ? event.loaded : undefined,
+            totalBytes: typeof event.total === 'number' ? event.total : undefined,
+          });
+        } else if (event.status === 'done' && event.file) {
+          post({
+            type: 'progress',
+            phase: 'download',
+            message: `Downloaded ${event.file}`,
+            file: typeof event.file === 'string' ? event.file : undefined,
           });
         }
       },

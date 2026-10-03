@@ -65,6 +65,9 @@ export interface ProgressEvent {
   phase: 'download' | 'load' | 'initialize';
   progress?: number;  // 0..1
   message?: string;
+  loadedBytes?: number;
+  totalBytes?: number;
+  file?: string;
 }
 
 export interface LanguageModel {

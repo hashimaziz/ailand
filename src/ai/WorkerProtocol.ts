@@ -45,6 +45,10 @@ export interface WorkerProgressEvent {
   phase: 'download' | 'load' | 'initialize';
   progress?: number;
   message?: string;
+  /** Byte counts for the file currently downloading, when known. */
+  loadedBytes?: number;
+  totalBytes?: number;
+  file?: string;
 }
 
 export interface WorkerTokenEvent {
