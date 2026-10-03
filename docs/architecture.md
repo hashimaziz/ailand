@@ -23,6 +23,14 @@ background task once the game was already running left the player walking into a
 neighbourhood and then getting stuck on "Loading AI" — no progress, no way to tell
 whether it was working, and no way out.
 
+The menu also sets *where* things run. Inference (`auto` / `webgpu` / `wasm`) and
+rendering (`auto` / `webgl2`) are independent settings, because GPU memory is the
+binding constraint: the CPU backend allocates outside the GPU, and forcing the
+renderer to WebGL2 means Three.js does not hold a second WebGPU device alongside
+the inference worker. The CPU path drops `q4f16` for `q4`, since the WASM backend
+has no float16 kernels — which makes the file *larger* (Qwen3-1.7B is 2048 MB as
+q4 versus 1360 MB as q4f16), so the menu quotes per-backend sizes.
+
 Configuration lives in one place, `src/config/appConfig.ts`. The startup menu
 writes it, the AI runtime reads it, and `createLanguageModel` no longer parses the
 URL. Query parameters are folded into the same shape for automation and deep
@@ -35,6 +43,18 @@ to the mock, because quietly changing what is being tested is worse than an erro
 
 `AiWorkerClient` also enforces a stall timeout: 120 s with no message from the
 worker fails the load with an explanation rather than waiting indefinitely.
+
+Failures are translated before display. `ModelErrors` maps ORT's opaque runtime
+messages — `std::bad_alloc`, "Can't create a session, ERROR_CODE: 6", missing GPU
+backends, failed downloads, storage failures — to a plain statement of the problem
+and concrete steps, because echoing `std::bad_alloc` at a player is not
+actionable.
+
+`detectCapabilities` reports the adapter's limits (`maxBufferSize`,
+`maxStorageBufferBindingSize`) and, via `gpuBudgetWarnings`, warns *before* a
+multi-gigabyte download when the model looks unlikely to fit or when the renderer
+is holding a second device. These are heuristics, not guarantees; the real test is
+loading the model.
 
 ## Layer boundaries
 
@@ -311,7 +331,15 @@ Recorded per the instruction in the plan to document deviations as they arise.
     were ever delivered. It now returns an uninitialised model and the caller
     drives initialisation. Found by instrumenting the startup screen and observing
     zero progress events during a real 260 MB download.
-14. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
+14. **The app was only ever verified in Chromium.** Safari's WebGPU is newer and
+    less tested, and a 1360 MB model there fails with `std::bad_alloc` at session
+    creation. The docs claimed a Chromium requirement, but nothing detected the
+    situation or offered a way out, so a Safari user hit an opaque runtime error.
+    Now surfaced as a capability warning, with CPU inference and a WebGL2 renderer
+    as levers, and documented as a known limitation. This is a real gap in earlier
+    releases rather than a new bug, and it should have been flagged when Safari
+    first came up rather than discovered this way.
+15. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
     flex containers, so setting `.hidden = true` had no effect and both phases
     rendered at once. Fixed with a `[hidden] { display: none !important }` reset.
     Worth remembering for any future phase-based UI.

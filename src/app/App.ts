@@ -50,7 +50,7 @@ export class App {
     
     this.scene = new Scene();
     this.camera = new Camera(window.innerWidth / window.innerHeight);
-    this.renderer = new Renderer(this.scene, this.camera);
+    this.renderer = new Renderer(this.scene, this.camera, this.appConfig.renderBackend === 'webgl2');
     
     this.container.appendChild(this.renderer.domElement);
     this.playerController = new PlayerController(this.camera.instance, document.body);

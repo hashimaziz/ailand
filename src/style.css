@@ -379,3 +379,22 @@ body, html {
 }
 
 .startup__use-mock:hover { color: #e9edf2; }
+
+.startup__warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.startup__warning {
+  padding: 8px 10px;
+  border-left: 2px solid #d29922;
+  border-radius: 0 6px 6px 0;
+  background: rgba(210, 153, 34, 0.08);
+  color: #e3c27e;
+  font-size: 0.8rem;
+  white-space: pre-line;
+}

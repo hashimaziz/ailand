@@ -1,6 +1,6 @@
 import { detectCapabilities } from './ModelCapabilities';
 import { MockLanguageModel } from './MockLanguageModel';
-import { getModelConfig } from './ModelConfig';
+import { resolveModelConfig } from './ModelConfig';
 import { getConfig } from '../config/appConfig';
 import { LanguageModel, ProgressEvent } from './LanguageModel';
 
@@ -10,10 +10,20 @@ export interface CreateLanguageModelResult {
   model: LanguageModel;
   kind: LanguageModelKind;
   fallbackReason?: string;
+  /** The configuration actually used, after backend and dtype adjustment. */
+  resolvedModelId?: string;
 }
 
 export function isBenchmarkRequested(): boolean {
   return getConfig().runBenchmark;
+}
+
+/** The backend inference will actually use, once `auto` is resolved. */
+export async function resolveInferDevice(): Promise<'webgpu' | 'wasm'> {
+  const config = getConfig();
+  if (config.inferDevice !== 'auto') return config.inferDevice;
+  const caps = await detectCapabilities();
+  return caps.webgpu ? 'webgpu' : 'wasm';
 }
 
 /**
@@ -41,7 +51,9 @@ export async function createLanguageModel(options?: {
     return { model: new MockLanguageModel(), kind: 'mock' };
   }
 
-  if (config.aiSource === 'auto') {
+  const device = await resolveInferDevice();
+
+  if (config.aiSource === 'auto' && device !== 'webgpu') {
     const caps = await detectCapabilities();
     if (!caps.webgpu) {
       return {
@@ -53,9 +65,13 @@ export async function createLanguageModel(options?: {
     }
   }
 
-  const modelConfig = getModelConfig(modelKey);
+  const modelConfig = resolveModelConfig(modelKey, device);
   const { AiWorkerClient } = await import('./AiWorkerClient');
-  return { model: new AiWorkerClient(modelConfig), kind: 'worker' };
+  return {
+    model: new AiWorkerClient(modelConfig),
+    kind: 'worker',
+    resolvedModelId: `${modelConfig.id} (${modelConfig.dtype}/${modelConfig.device})`,
+  };
 }
 
 /**

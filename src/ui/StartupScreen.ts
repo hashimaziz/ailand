@@ -1,7 +1,7 @@
-import { MODEL_CONFIGS, getModelConfig } from '../ai/ModelConfig';
-import { CapabilityReport } from '../ai/ModelCapabilities';
+import { MODEL_CONFIGS, getModelConfig, dtypeNote, resolveModelConfig } from '../ai/ModelConfig';
+import { CapabilityReport, formatBytes, gpuBudgetWarnings } from '../ai/ModelCapabilities';
 import { ProgressEvent } from '../ai/LanguageModel';
-import { AppConfig, AiSource } from '../config/appConfig';
+import { AppConfig, AiSource, InferDevice, RenderBackend } from '../config/appConfig';
 
 export interface ModelChoice {
   key: string;
@@ -12,22 +12,31 @@ export interface ModelChoice {
   approxMb: number;
 }
 
-/** Verified against the Hugging Face API; q4f16 onnx weight sizes. */
+/**
+ * Approximate weight-file sizes in megabytes, verified against the Hugging Face
+ * API. Keyed by model id and dtype, because the CPU build is a different file and
+ * a different size — int4 quantisation produces a *larger* file than q4f16.
+ */
 const APPROX_WEIGHT_MB: Record<string, number> = {
-  'onnx-community/Qwen3-0.6B-ONNX': 543,
-  'onnx-community/Qwen3-1.7B-ONNX': 1360,
-  'onnx-community/SmolLM2-360M-Instruct-ONNX': 280,
-  'mock-model': 0,
+  'onnx-community/Qwen3-0.6B-ONNX|q4f16': 543,
+  'onnx-community/Qwen3-0.6B-ONNX|q4': 877,
+  'onnx-community/Qwen3-1.7B-ONNX|q4f16': 1360,
+  'onnx-community/Qwen3-1.7B-ONNX|q4': 2048,
+  'onnx-community/SmolLM2-360M-Instruct-ONNX|q4f16': 260,
+  'onnx-community/SmolLM2-360M-Instruct-ONNX|q4': 369,
 };
 
-export function modelChoices(): ModelChoice[] {
-  return Object.entries(MODEL_CONFIGS).map(([key, config]) => ({
-    key,
-    id: config.id,
-    dtype: config.dtype ?? 'default',
-    device: config.device,
-    approxMb: APPROX_WEIGHT_MB[config.id] ?? 0,
-  }));
+export function modelChoices(device: 'webgpu' | 'wasm' = 'webgpu'): ModelChoice[] {
+  return Object.keys(MODEL_CONFIGS).map((key) => {
+    const config = resolveModelConfig(key, device);
+    return {
+      key,
+      id: config.id,
+      dtype: config.dtype ?? 'default',
+      device: config.device,
+      approxMb: APPROX_WEIGHT_MB[`${config.id}|${config.dtype}`] ?? 0,
+    };
+  });
 }
 
 const AI_SOURCE_LABELS: Record<AiSource, string> = {
@@ -63,6 +72,9 @@ export class StartupScreen {
   private useMockBtn: HTMLButtonElement;
   private modelSelect: HTMLSelectElement;
   private sourceSelect: HTMLSelectElement;
+  private deviceSelect: HTMLSelectElement;
+  private renderSelect: HTMLSelectElement;
+  private warnEl: HTMLElement;
   private benchInput: HTMLInputElement;
   private noteEl: HTMLElement;
 
@@ -96,12 +108,30 @@ export class StartupScreen {
             </select>
           </label>
 
+          <label class="startup__field">
+            <span class="startup__label">Inference</span>
+            <select class="startup__select startup__device">
+              <option value="auto">Automatic — GPU if available, otherwise CPU</option>
+              <option value="webgpu">GPU (WebGPU) — fast, needs GPU memory</option>
+              <option value="wasm">CPU (WASM) — slower, works with little GPU memory</option>
+            </select>
+          </label>
+
+          <label class="startup__field">
+            <span class="startup__label">Rendering</span>
+            <select class="startup__select startup__render">
+              <option value="auto">Automatic — WebGPU with WebGL2 fallback</option>
+              <option value="webgl2">WebGL2 — frees the GPU for the model</option>
+            </select>
+          </label>
+
           <label class="startup__field startup__field--check">
             <input type="checkbox" class="startup__check startup__bench" />
             <span>Benchmark all models after start (developer tool, downloads each one)</span>
           </label>
 
           <p class="startup__note"></p>
+          <ul class="startup__warnings"></ul>
           <p class="startup__error" role="alert"></p>
 
           <button type="submit" class="startup__start">Start</button>
@@ -136,6 +166,9 @@ export class StartupScreen {
     this.useMockBtn = q<HTMLButtonElement>('.startup__use-mock');
     this.modelSelect = q<HTMLSelectElement>('.startup__model');
     this.sourceSelect = q<HTMLSelectElement>('.startup__source');
+    this.deviceSelect = q<HTMLSelectElement>('.startup__device');
+    this.renderSelect = q<HTMLSelectElement>('.startup__render');
+    this.warnEl = q('.startup__warnings');
     this.benchInput = q<HTMLInputElement>('.startup__bench');
 
     // The loading view is a second phase; it must not show through the form.
@@ -144,11 +177,27 @@ export class StartupScreen {
     this.populateModels();
     this.modelSelect.value = initial.modelKey;
     this.sourceSelect.value = initial.aiSource;
+    this.deviceSelect.value = initial.inferDevice;
+    this.renderSelect.value = initial.renderBackend;
     this.benchInput.checked = initial.runBenchmark;
 
-    this.modelSelect.addEventListener('change', () => this.renderNote());
-    this.sourceSelect.addEventListener('change', () => this.renderNote());
-    this.benchInput.addEventListener('change', () => this.renderNote());
+    for (const el of [
+      this.modelSelect,
+      this.sourceSelect,
+      this.deviceSelect,
+      this.renderSelect,
+      this.benchInput,
+    ]) {
+      el.addEventListener('change', () => {
+        // Model sizes depend on the backend, so rebuild the options when it moves.
+        if (el === this.deviceSelect) {
+          const key = this.modelSelect.value;
+          this.populateModelsFor(el.value === 'wasm' ? 'wasm' : 'webgpu');
+          this.modelSelect.value = key;
+        }
+        this.renderNote();
+      });
+    }
     this.formEl.addEventListener('submit', (event) => {
       event.preventDefault();
       this.errorEl.textContent = '';
@@ -178,6 +227,8 @@ export class StartupScreen {
     return {
       modelKey: this.modelSelect.value,
       aiSource: this.sourceSelect.value as AiSource,
+      inferDevice: this.deviceSelect.value as InferDevice,
+      renderBackend: this.renderSelect.value as RenderBackend,
       runBenchmark: this.benchInput.checked,
     };
   }
@@ -236,7 +287,14 @@ export class StartupScreen {
   }
 
   private populateModels(): void {
-    for (const choice of modelChoices()) {
+    this.populateModelsFor(this.deviceSelect?.value === 'wasm' ? 'wasm' : 'webgpu');
+  }
+
+  private populateModelsFor(device: 'webgpu' | 'wasm'): void {
+    // Replace, never append: this runs again whenever the backend changes, and
+    // appending would leave both backends' options in the list.
+    this.modelSelect.innerHTML = '';
+    for (const choice of modelChoices(device)) {
       const option = document.createElement('option');
       option.value = choice.key;
       const size = choice.approxMb > 0 ? `~${choice.approxMb} MB` : 'no download';
@@ -262,26 +320,39 @@ export class StartupScreen {
     this.barLabel.textContent = loaded && total ? `${loaded} / ${total}` : `${(pct * 100).toFixed(0)}%`;
   }
 
-  /** Explain what the current selection will actually do. */
+  /** Explain what the current selection will actually do, and what might go wrong. */
   private renderNote(): void {
     const config = this.currentConfig();
-    const choice = modelChoices().find((c) => c.key === config.modelKey);
     const notes: string[] = [];
+    const warnings: string[] = [];
+
+    const cpuRequested = config.inferDevice === 'wasm';
+    const choice = modelChoices(cpuRequested ? 'wasm' : 'webgpu').find(
+      (c) => c.key === config.modelKey,
+    );
 
     if (config.aiSource === 'mock') {
       notes.push('Mock model: replies are scripted and no model is downloaded. Memory still forms.');
+    } else if (cpuRequested) {
+      notes.push(
+        `Runs on the CPU. Expect noticeably slower replies, but it does not need GPU memory. ${
+          choice?.approxMb ? `Downloads ~${choice.approxMb} MB on first run.` : ''
+        }`.trim(),
+      );
+      const note = dtypeNote(config.modelKey, 'wasm');
+      if (note) notes.push(note);
     } else if (config.aiSource === 'local') {
       notes.push(
         `Downloads ~${choice?.approxMb ?? 0} MB on first run, then the browser caches it.`,
       );
       if (this.capabilities && !this.capabilities.webgpu) {
         notes.push(
-          'Warning: this browser reports no WebGPU adapter, so the local model will probably fail after downloading. Automatic mode falls back to the mock instead.',
+          'Warning: this browser reports no WebGPU adapter, so a GPU run will probably fail. Automatic or CPU is safer.',
         );
       }
     } else if (this.capabilities && !this.capabilities.webgpu) {
       notes.push(
-        `This browser reports no WebGPU adapter, so the mock model will be used instead. ${this.capabilities.reason ?? ''}`.trim(),
+        `No WebGPU adapter here, so this will use the mock model. ${this.capabilities.reason ?? ''}`.trim(),
       );
     } else {
       notes.push(
@@ -289,11 +360,49 @@ export class StartupScreen {
       );
     }
 
+    if (this.capabilities) {
+      warnings.push(...this.capabilities.warnings);
+      if (config.aiSource !== 'mock' && !cpuRequested) {
+        warnings.push(
+          ...gpuBudgetWarnings(this.capabilities, {
+            weightMb: choice?.approxMb ?? 0,
+            rendererUsesWebGpu: config.renderBackend !== 'webgl2',
+          }),
+        );
+      }
+    }
+
+    if (config.renderBackend === 'webgl2' && config.aiSource !== 'mock') {
+      notes.push('Rendering uses WebGL2, leaving the GPU to the model.');
+    }
+
     if (config.runBenchmark) {
       notes.push('Benchmark mode will download every candidate model in turn.');
     }
 
     this.noteEl.textContent = notes.join(' ');
+    this.renderWarnings(warnings);
+  }
+
+  private renderWarnings(warnings: string[]): void {
+    this.warnEl.innerHTML = '';
+    for (const warning of warnings) {
+      const item = document.createElement('li');
+      item.className = 'startup__warning';
+      item.textContent = warning;
+      this.warnEl.appendChild(item);
+    }
+    this.warnEl.hidden = warnings.length === 0;
+  }
+
+  /** Human-readable summary of the GPU this browser would use. */
+  public adapterSummary(): string | null {
+    const adapter = this.capabilities?.adapter;
+    if (!adapter) return null;
+    const parts: string[] = [];
+    if (adapter.description) parts.push(adapter.description);
+    if (adapter.maxBufferSize) parts.push(`max buffer ${formatBytes(adapter.maxBufferSize)}`);
+    return parts.length > 0 ? parts.join(' · ') : null;
   }
 }
 

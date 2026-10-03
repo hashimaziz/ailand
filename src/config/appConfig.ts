@@ -9,15 +9,34 @@ import { DEFAULT_MODEL_KEY, isKnownModelKey } from '../ai/ModelConfig';
  */
 export type AiSource = 'auto' | 'local' | 'mock';
 
+/**
+ * Where inference runs.
+ *
+ * `wasm` is slower but allocates outside the GPU, which is the difference
+ * between working and `std::bad_alloc` on machines with little GPU memory.
+ */
+export type InferDevice = 'auto' | 'webgpu' | 'wasm';
+
+/**
+ * Which backend the renderer uses. Forcing WebGL2 stops Three.js holding a second
+ * WebGPU device alongside the inference worker, which matters when GPU memory is
+ * the limiting resource.
+ */
+export type RenderBackend = 'auto' | 'webgl2';
+
 export interface AppConfig {
   modelKey: string;
   aiSource: AiSource;
+  inferDevice: InferDevice;
+  renderBackend: RenderBackend;
   runBenchmark: boolean;
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   modelKey: DEFAULT_MODEL_KEY,
   aiSource: 'auto',
+  inferDevice: 'auto',
+  renderBackend: 'auto',
   runBenchmark: false,
 };
 
@@ -40,6 +59,8 @@ export function setConfig(next: Partial<AppConfig>): AppConfig {
       ? (next.modelKey ?? current.modelKey)
       : DEFAULT_APP_CONFIG.modelKey,
     aiSource: next.aiSource ?? current.aiSource,
+    inferDevice: next.inferDevice ?? current.inferDevice,
+    renderBackend: next.renderBackend ?? current.renderBackend,
     runBenchmark: next.runBenchmark ?? current.runBenchmark,
   };
   return current;
@@ -64,9 +85,13 @@ export function configFromSearch(search: string): Partial<AppConfig> {
   if (params.get('mockAi') === '1') aiSource = 'mock';
   else if (params.get('realAi') === '1') aiSource = 'local';
 
+  const device = params.get('device');
+
   return {
     ...(isKnownModelKey(modelKey ?? '') ? { modelKey: modelKey as string } : {}),
     ...(aiSource ? { aiSource } : {}),
+    ...(device === 'wasm' || device === 'webgpu' ? { inferDevice: device } : {}),
+    ...(params.get('webgl') === '1' ? { renderBackend: 'webgl2' } : {}),
     ...(params.get('bench') === '1' ? { runBenchmark: true } : {}),
   };
 }

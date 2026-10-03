@@ -4,6 +4,7 @@ import { StartupScreen } from './ui/StartupScreen';
 import { DeferredLanguageModel } from './ai/DeferredLanguageModel';
 import { createLanguageModel } from './ai/createLanguageModel';
 import { detectCapabilities } from './ai/ModelCapabilities';
+import { describeModelLoadError } from './ai/ModelErrors';
 import {
   AppConfig,
   configFromSearch,
@@ -45,13 +46,14 @@ async function loadModelAndStart(container: HTMLElement, config: AppConfig, scre
   try {
     await model.initialize({ onProgress: (event) => screen?.updateProgress(event) });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'The language model failed to load.';
+    const raw = err instanceof Error ? err.message : 'The language model failed to load.';
     if (screen) {
-      screen.showLoadingError(
-        `${message} You can try again, or switch to the mock model to keep playing.`,
-      );
+      // ORT allocation and backend errors are opaque; translate them into steps
+      // the player can actually take.
+      screen.showLoadingError(describeModelLoadError(raw));
       return;
     }
+    const message = raw;
     // No startup screen to recover on (automated run): play on without dialogue.
     console.error('[AI] model failed to load:', message);
   }

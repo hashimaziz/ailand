@@ -59,6 +59,8 @@ configuration shape:
 | `?mockAi=1` | Equivalent to choosing the mock model source |
 | `?realAi=1` | Equivalent to choosing the local model source |
 | `?model=<key>` | Preselect a candidate (e.g. `qwen3-1.7b`). Unknown keys are ignored. |
+| `?device=wasm` | Preselect CPU (WASM) inference |
+| `?webgl=1` | Preselect the WebGL2 renderer |
 | `?bench=1` | Preselect benchmark mode |
 
 The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
@@ -66,6 +68,17 @@ The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
 hundred megabytes on first real-model run — about 543 MB for the 0.6B candidate,
 1360 MB for the 1.7B one. Transformers.js caches it in the browser, so subsequent
 runs reuse it.
+
+### Low GPU memory
+
+If a model fails with `std::bad_alloc` or "Can't create a session", the GPU could
+not allocate for the inference session. In order: smaller model, then Inference =
+CPU (WASM), then Rendering = WebGL2, then close other GPU-heavy apps. The startup
+screen shows adapter limits and warns when a model looks unlikely to fit.
+
+Two WebGPU devices exist while inference runs — Three.js's renderer and the
+worker — so forcing the WebGL2 renderer is a real memory saving, not a cosmetic
+one.
 
 ### Choosing a model
 

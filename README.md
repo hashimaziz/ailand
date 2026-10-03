@@ -28,19 +28,28 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Use a recent Chromium-based browser with WebGPU
-enabled for local inference.
+Open `http://localhost:5173` and choose your settings on the startup screen.
+
+**Supported browser: recent Chromium-based Chrome or Edge.** Local inference is
+built and tested against Chromium with WebGPU. Safari's WebGPU is newer and less
+tested, and large models there commonly fail to allocate GPU memory — see
+[Troubleshooting](#troubleshooting) below if that happens.
 
 The dialogue model is a few hundred megabytes and is downloaded on first use and
 cached by the browser. The world is fully explorable while it downloads.
 
 ### Choosing a model
 
-The app opens on a startup screen. Pick a model, pick where it comes from
-(automatic, local, or a scripted mock), and press Start. Each option shows its
-download size up front, and the model is fetched and initialised *before* the
-world loads — with byte-level progress, so a slow download is visibly making
-progress rather than looking frozen.
+The app opens on a startup screen. Pick a model, where it comes from (automatic,
+local, or a scripted mock), where inference runs (GPU or CPU), and press Start.
+Each option shows its download size up front, and the model is fetched and
+initialised *before* the world loads — with byte-level progress, so a slow
+download is visibly making progress rather than looking frozen.
+
+**Inference** and **Rendering** are separate because GPU memory is the scarce
+resource. Inference can run on the CPU via WASM, which is slower but does not
+touch the GPU at all; rendering can be forced to WebGL2, which stops Three.js
+holding a second WebGPU device while the model loads.
 
 If the model cannot load, the startup screen stays up with the reason and offers a
 retry or a switch to the mock model, so you are never stuck.
@@ -55,6 +64,8 @@ These exist for automation and deep links; the startup menu is the normal path.
 | `?mockAi=1` | Equivalent to choosing the mock model source. |
 | `?realAi=1` | Equivalent to choosing the local model source. |
 | `?model=<key>` | Preselect a candidate, e.g. `?model=qwen3-1.7b`. |
+| `?device=wasm` | Preselect CPU inference. |
+| `?webgl=1` | Preselect the WebGL2 renderer. |
 | `?bench=1` | Preselect benchmark mode. |
 
 ### Controls
@@ -71,6 +82,23 @@ to the NPC you are facing, `Esc` to close a conversation.
 | [`docs/memory-system.md`](docs/memory-system.md) | How memories form, what the model is allowed to propose, and the policy that decides |
 | [`docs/roadmap.md`](docs/roadmap.md) | Milestone status and what is deferred |
 | [`docs/development.md`](docs/development.md) | Setup, model selection, testing, manual verification |
+
+## Troubleshooting
+
+**`std::bad_alloc` / "Can't create a session, ERROR_CODE: 6"** — the GPU ran out
+of memory creating the inference session. In order of likelihood:
+
+1. Use a smaller model: Qwen3 **0.6B** rather than 1.7B.
+2. Set **Inference** to **CPU (WASM)**. Slower, but does not use GPU memory.
+3. Set **Rendering** to **WebGL2**, freeing the GPU device the renderer holds.
+4. Close other GPU-heavy tabs and applications, then retry.
+
+The startup screen warns before you commit to a large download when the selected
+model looks unlikely to fit the adapter.
+
+**Everything is slow or the model will not load at all in Safari** — expected.
+Use Chromium for local inference. The CPU option may work in Safari, but quality
+and speed are unverified there.
 
 ## Testing
 

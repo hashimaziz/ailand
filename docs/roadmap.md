@@ -63,5 +63,10 @@ Deferred, and why:
 - **Queued extraction** — memory formation competes with conversation for a single
   generation slot (plan §27). One conversation at a time makes this invisible.
 - **Choosing the default model on measured evidence** — the harness now exists
-  (`?bench=1`), so this is reduced to running it once in a WebGPU browser and
-  recording the result. It should be recorded in this file when it is done.
+  (tick the benchmark box on the startup screen), so this is reduced to running it
+  once in a WebGPU browser and recording the result. It should be recorded in this
+  file when it is done.
+- **Verifying a second browser** — everything so far has been exercised in
+  Chromium. Safari works for rendering, but local model inference there is
+  untested and has already failed with a GPU allocation error on a 1.7B model.
+  Either verify it properly or state the limitation more prominently.

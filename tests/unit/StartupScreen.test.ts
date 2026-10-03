@@ -35,6 +35,7 @@ describe('appConfig', () => {
     setConfig({ modelKey: 'qwen3-1.7b', aiSource: 'mock' });
     setConfig({ runBenchmark: true });
     expect(getConfig()).toEqual({
+      ...DEFAULT_APP_CONFIG,
       modelKey: 'qwen3-1.7b',
       aiSource: 'mock',
       runBenchmark: true,
@@ -77,11 +78,17 @@ describe('remembered config', () => {
   });
 
   it('round-trips through localStorage', () => {
-    rememberConfig({ modelKey: 'qwen3-1.7b', aiSource: 'local', runBenchmark: false });
-    expect(loadRememberedConfig()).toEqual({
+    rememberConfig({
+      ...DEFAULT_APP_CONFIG,
       modelKey: 'qwen3-1.7b',
       aiSource: 'local',
-      runBenchmark: false,
+      inferDevice: 'wasm',
+    });
+    expect(loadRememberedConfig()).toEqual({
+      ...DEFAULT_APP_CONFIG,
+      modelKey: 'qwen3-1.7b',
+      aiSource: 'local',
+      inferDevice: 'wasm',
     });
   });
 
@@ -121,6 +128,24 @@ describe('StartupScreen', () => {
     expect(options[0].textContent).toContain('~543 MB');
   });
 
+  it('re-quotes sizes for the CPU backend, whose build is larger', () => {
+    // int4 builds are bigger on disk than q4f16, so the menu must not quote the
+    // GPU size while telling the player it is downloading the CPU build.
+    expect(modelChoices('wasm').find((c) => c.key === 'qwen3-1.7b')!.approxMb).toBe(2048);
+    expect(modelChoices('webgpu').find((c) => c.key === 'qwen3-1.7b')!.approxMb).toBe(1360);
+  });
+
+  it('switches the quoted sizes when the inference backend changes', () => {
+    field<HTMLSelectElement>('.startup__model').value = 'qwen3-1.7b';
+    field<HTMLSelectElement>('.startup__device').value = 'wasm';
+    field<HTMLSelectElement>('.startup__device').dispatchEvent(new Event('change'));
+
+    const option = screen.root.querySelector('.startup__model option[value="qwen3-1.7b"]');
+    expect(option?.textContent).toContain('~2048 MB');
+    // The selection survives the rebuild.
+    expect(field<HTMLSelectElement>('.startup__model').value).toBe('qwen3-1.7b');
+  });
+
   it('hides the loading view until it is needed', () => {
     expect(field('.startup__loading').hidden).toBe(true);
     screen.showLoading('Preparing…');
@@ -145,7 +170,12 @@ describe('StartupScreen', () => {
       new Event('submit', { bubbles: true, cancelable: true }),
     );
 
-    expect(chosen).toEqual({ modelKey: 'qwen3-1.7b', aiSource: 'mock', runBenchmark: true });
+    expect(chosen).toEqual({
+      ...DEFAULT_APP_CONFIG,
+      modelKey: 'qwen3-1.7b',
+      aiSource: 'mock',
+      runBenchmark: true,
+    });
   });
 
   it('shows byte-level download progress', () => {
@@ -212,6 +242,7 @@ describe('StartupScreen', () => {
       indexeddb: true,
       level: 'partial',
       reason: 'WebGPU is unavailable.',
+      warnings: [],
     });
     field<HTMLSelectElement>('.startup__source').value = 'local';
     field<HTMLSelectElement>('.startup__source').dispatchEvent(new Event('change'));
@@ -233,9 +264,10 @@ describe('StartupScreen', () => {
       indexeddb: true,
       level: 'partial',
       reason: 'WebGPU is unavailable.',
+      warnings: [],
     });
 
-    expect(field('.startup__note').textContent).toContain('no WebGPU adapter');
+    expect(field('.startup__note').textContent).toContain('No WebGPU adapter');
   });
 
   it('states the download size when a local model is chosen', () => {

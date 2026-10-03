@@ -8,11 +8,17 @@ export class Renderer {
   private scene: Scene;
   private camera: Camera;
 
-  constructor(scene: Scene, camera: Camera) {
+  /**
+   * @param forceWebGL Render through the WebGL2 backend instead of taking a WebGPU
+   *   device. Inference runs in its own worker with its own device, so on a
+   *   memory-constrained GPU two devices at once can be what tips an inference
+   *   session into `std::bad_alloc`.
+   */
+  constructor(scene: Scene, camera: Camera, forceWebGL = false) {
     this.scene = scene;
     this.camera = camera;
-    
-    this.instance = new WebGPURenderer({ antialias: true });
+
+    this.instance = new WebGPURenderer({ antialias: true, forceWebGL });
     this.instance.setPixelRatio(window.devicePixelRatio);
     this.instance.setSize(window.innerWidth, window.innerHeight);
     this.instance.shadowMap.enabled = true;
