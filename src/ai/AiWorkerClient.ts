@@ -22,22 +22,33 @@ export class AiWorkerClient implements LanguageModel {
   private pendingCallbacks = new Map<string, (event: GenerationEvent) => void>();
   private pendingResolves = new Map<string, () => void>();
   private pendingRejects = new Map<string, (err: Error) => void>();
+  private partialTexts = new Map<string, string>();
 
   // For initialize promise
   private initResolve: ((info: ModelInfo) => void) | null = null;
   private initReject: ((err: Error) => void) | null = null;
+  private initPromise: Promise<ModelInfo> | null = null;
   private progressCallback: ((event: any) => void) | null = null;
 
   constructor(private config: ModelConfig) {}
 
   async initialize(options?: InitializeOptions): Promise<ModelInfo> {
+    if (options?.onProgress) {
+      this.progressCallback = options.onProgress;
+    }
+
+    if (this.ready && this.modelInfo) {
+      return this.modelInfo;
+    }
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
     // Create the worker using Vite's worker import pattern
     this.worker = new Worker(
       new URL('./worker.ts', import.meta.url),
       { type: 'module' }
     );
-
-    this.progressCallback = options?.onProgress ?? null;
 
     this.worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
       this.handleWorkerMessage(event.data);
@@ -45,6 +56,7 @@ export class AiWorkerClient implements LanguageModel {
 
     this.worker.onerror = (err) => {
       console.error('[AiWorkerClient] Worker error:', err);
+      this.initPromise = null;
       if (this.initReject) {
         this.initReject(new Error(`Worker error: ${err.message}`));
         this.initReject = null;
@@ -52,11 +64,18 @@ export class AiWorkerClient implements LanguageModel {
       }
     };
 
-    return new Promise<ModelInfo>((resolve, reject) => {
+    this.initPromise = new Promise<ModelInfo>((resolve, reject) => {
       this.initResolve = resolve;
       this.initReject = reject;
       this.send({ type: 'initialize', config: this.config });
     });
+
+    try {
+      return await this.initPromise;
+    } catch (err) {
+      this.initPromise = null;
+      throw err;
+    }
   }
 
   async generate(
@@ -88,10 +107,30 @@ export class AiWorkerClient implements LanguageModel {
 
   async cancel(requestId: string): Promise<void> {
     this.send({ type: 'cancel', requestId });
+
+    // The worker drops cancelled generations without emitting a terminal event,
+    // so settle the pending request here and commit whatever was streamed so far.
+    const partial = this.partialTexts.get(requestId);
+    if (partial !== undefined) {
+      const cb = this.pendingCallbacks.get(requestId);
+      const resolve = this.pendingResolves.get(requestId);
+      this.cleanupRequest(requestId);
+      cb?.({ type: 'completed', requestId, fullText: partial });
+      resolve?.();
+      return;
+    }
+
+    const resolve = this.pendingResolves.get(requestId);
     this.cleanupRequest(requestId);
+    resolve?.();
   }
 
   async dispose(): Promise<void> {
+    for (const requestId of Array.from(this.pendingResolves.keys())) {
+      this.pendingRejects.get(requestId)?.(new Error('Model was disposed.'));
+      this.cleanupRequest(requestId);
+    }
+
     if (this.worker) {
       this.send({ type: 'dispose' });
       // Give the worker a moment, then terminate
@@ -117,6 +156,9 @@ export class AiWorkerClient implements LanguageModel {
     }
     this.ready = false;
     this.modelInfo = null;
+    this.initPromise = null;
+    this.initResolve = null;
+    this.initReject = null;
   }
 
   isReady(): boolean {
@@ -154,6 +196,9 @@ export class AiWorkerClient implements LanguageModel {
         break;
 
       case 'token': {
+        if (msg.text) {
+          this.partialTexts.set(msg.requestId, (this.partialTexts.get(msg.requestId) ?? '') + msg.text);
+        }
         const cb = this.pendingCallbacks.get(msg.requestId);
         cb?.({ type: 'token', requestId: msg.requestId, text: msg.text });
         break;
@@ -198,5 +243,6 @@ export class AiWorkerClient implements LanguageModel {
     this.pendingCallbacks.delete(requestId);
     this.pendingResolves.delete(requestId);
     this.pendingRejects.delete(requestId);
+    this.partialTexts.delete(requestId);
   }
 }

@@ -11,3 +11,116 @@ body, html {
   width: 100%;
   height: 100%;
 }
+
+#dialogue-panel {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent 45%);
+}
+
+.dialogue-panel__inner {
+  width: min(640px, 100%);
+  background: rgba(18, 22, 28, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: #f2f2f2;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+
+.dialogue-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dialogue-panel__name {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.dialogue-panel__close {
+  background: transparent;
+  border: none;
+  color: #ccc;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dialogue-panel__transcript {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+
+.dialogue-panel__line--player {
+  color: #9fd3ff;
+}
+
+.dialogue-panel__line--npc {
+  color: #ffe6a8;
+}
+
+.dialogue-panel__npc-line {
+  min-height: 1.4em;
+  margin-bottom: 8px;
+  color: #ffe6a8;
+  font-style: italic;
+}
+
+.dialogue-panel__status,
+.dialogue-panel__error {
+  min-height: 1.2em;
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+.dialogue-panel__error {
+  color: #ff8a8a;
+}
+
+.dialogue-panel__composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  padding: 10px;
+  font: inherit;
+}
+
+.dialogue-panel__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.dialogue-panel__actions button {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.dialogue-panel__send {
+  background: rgba(80, 140, 255, 0.35) !important;
+}
+
+.dialogue-panel__cancel,
+.dialogue-panel__retry {
+  display: none;
+}

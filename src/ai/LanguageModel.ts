@@ -78,4 +78,5 @@ export interface LanguageModel {
   cancel(requestId: string): Promise<void>;
   dispose(): Promise<void>;
   isReady(): boolean;
+  getModelInfo?(): ModelInfo | null;
 }

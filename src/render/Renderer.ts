@@ -15,9 +15,8 @@ export class Renderer {
     this.instance = new WebGPURenderer({ antialias: true });
     this.instance.setPixelRatio(window.devicePixelRatio);
     this.instance.setSize(window.innerWidth, window.innerHeight);
-    // To enable shadows if supported by renderer config
-    // this.instance.shadowMap.enabled = true;
-    
+    this.instance.shadowMap.enabled = true;
+
     this.domElement = this.instance.domElement;
   }
 
@@ -26,10 +25,10 @@ export class Renderer {
   }
 
   public async init(): Promise<void> {
-    return Promise.resolve();
+    await this.instance.init();
   }
 
   public render(): void {
-    this.instance.renderAsync(this.scene.instance, this.camera.instance);
+    this.instance.render(this.scene.instance, this.camera.instance);
   }
 }

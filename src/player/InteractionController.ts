@@ -10,17 +10,32 @@ export interface Interactable {
 export class InteractionController {
   public currentTarget: Interactable | null = null;
   private interactDistance = 4.0;
+  private interactables: Interactable[];
+  private enabled = true;
 
   constructor(
     private camera: THREE.Camera, 
-    private interactables: Interactable[],
+    interactables: Interactable[],
     private onInteract: (target: Interactable) => void
   ) {
+    this.interactables = interactables;
     document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyE' && this.currentTarget) {
+      if (e.code === 'KeyE' && this.enabled && this.currentTarget) {
         this.onInteract(this.currentTarget);
       }
     });
+  }
+
+  public setEnabled(enabled: boolean) {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.currentTarget = null;
+      this.updateIndicator();
+    }
+  }
+
+  public setInteractables(interactables: Interactable[]) {
+    this.interactables = interactables;
   }
 
   public update() {
@@ -58,7 +73,7 @@ export class InteractionController {
     
     if (this.currentTarget) {
       el.style.display = 'block';
-      el.innerText = `[E] Interact with ${this.currentTarget.name}`;
+      el.innerText = `[E] Talk to ${this.currentTarget.name}`;
     } else {
       el.style.display = 'none';
     }

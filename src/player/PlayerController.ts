@@ -10,6 +10,7 @@ export class PlayerController {
   private bounds = { minX: -48, maxX: 48, minZ: -48, maxZ: 48 };
   private euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private isLocked = false;
+  private inputEnabled = true;
 
   constructor(private camera: THREE.Camera, private domElement: HTMLElement) {
     this.initEvents();
@@ -72,8 +73,21 @@ export class PlayerController {
     }
   };
 
+  public setInputEnabled(enabled: boolean) {
+    this.inputEnabled = enabled;
+    if (!enabled) {
+      this.moveForward = false;
+      this.moveBackward = false;
+      this.moveLeft = false;
+      this.moveRight = false;
+      if (document.pointerLockElement === this.domElement) {
+        document.exitPointerLock();
+      }
+    }
+  }
+
   public update(delta: number) {
-    if (!this.isLocked) return;
+    if (!this.isLocked || !this.inputEnabled) return;
 
     const dirZ = Number(this.moveForward) - Number(this.moveBackward);
     const dirX = Number(this.moveRight) - Number(this.moveLeft);
