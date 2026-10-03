@@ -76,8 +76,9 @@ runs reuse it.
 ### The local llama.cpp runtime
 
 Optional, and it is where the good models live. **With `npm run dev` you do not
-need to start a server yourself.** Put a GGUF file in `models/` (or set
-`AILAND_LLAMA_MODEL`), choose **Local llama.cpp server** on the startup screen,
+need to start a server yourself.** Put a GGUF file in `models/` — the directory is
+committed with a README, and its contents are gitignored — or set
+`AILAND_LLAMA_MODEL`, choose **Local llama.cpp server** on the startup screen,
 and press Start — the dev server launches `llama-server`, the loading view narrates
 the startup from the server's log, and the world loads once the model is ready. The
 server is shut down when the dev server exits.
