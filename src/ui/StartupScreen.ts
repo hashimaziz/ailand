@@ -10,6 +10,11 @@ import {
   RenderBackend,
 } from '../config/appConfig';
 
+export interface StartupScreenHandlers {
+  /** Called when the llama.cpp runtime is selected, to check the server. */
+  probeLlama?: (url: string) => Promise<boolean>;
+}
+
 export interface ModelChoice {
   key: string;
   id: string;
@@ -93,6 +98,7 @@ export class StartupScreen {
   constructor(
     initial: AppConfig,
     onStart: (config: AppConfig) => void,
+    private handlers: StartupScreenHandlers = {},
   ) {
     this.onStart = onStart;
     this.root = document.createElement('div');
@@ -219,6 +225,13 @@ export class StartupScreen {
     ]) {
       el.addEventListener('change', () => {
         // Model sizes depend on the backend, so rebuild the options when it moves.
+        if (el === this.runtimeSelect) {
+          this.applyRuntimeVisibility();
+          this.scheduleProbe();
+        }
+        if (el === this.serverUrlInput) {
+          this.scheduleProbe();
+        }
         if (el === this.deviceSelect) {
           const key = this.modelSelect.value;
           this.populateModelsFor(el.value === 'wasm' ? 'wasm' : 'webgpu');
@@ -227,6 +240,10 @@ export class StartupScreen {
         this.renderNote();
       });
     }
+    // A text field emits `input` while typing and `change` only on blur. The probe
+    // is debounced, so listen to `input` or a typed URL is never re-checked.
+    this.serverUrlInput.addEventListener('input', () => this.scheduleProbe());
+
     this.formEl.addEventListener('submit', (event) => {
       event.preventDefault();
       this.errorEl.textContent = '';
@@ -276,11 +293,43 @@ export class StartupScreen {
 
   /** Record whether a local llama.cpp server answered, for the menu note. */
   public setLlamaServerStatus(available: boolean | null): void {
-    this.llamaServerAvailable = available;
+    this.setStatus(available ? 'up' : 'down');
+  }
+
+  private llamaServerStatus: 'idle' | 'checking' | 'up' | 'down' = 'idle';
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
+  private probeToken = 0;
+
+  private setStatus(status: typeof this.llamaServerStatus) {
+    this.llamaServerStatus = status;
     this.renderNote();
   }
 
-  private llamaServerAvailable: boolean | null = null;
+  /**
+   * Check the server now.
+   *
+   * Triggered by selecting the runtime rather than only once at page load: the
+   * usual workflow is opening the app, starting the server, then choosing the
+   * option — and a single stale probe would still claim it was missing.
+   */
+  private scheduleProbe(): void {
+    if (this.handlers.probeLlama === undefined) return;
+    if (this.runtimeSelect.value !== 'llamaServer') return;
+
+    this.setStatus('checking');
+
+    if (this.probeTimer !== null) clearTimeout(this.probeTimer);
+    const token = ++this.probeToken;
+    const url = this.serverUrlInput.value.trim() || DEFAULT_LLAMA_SERVER_URL;
+
+    // Debounced so typing a URL probes once the user stops, not per keystroke.
+    this.probeTimer = setTimeout(async () => {
+      const available = await this.handlers.probeLlama!(url);
+      // A slower earlier probe must not overwrite a newer result.
+      if (token !== this.probeToken) return;
+      this.setStatus(available ? 'up' : 'down');
+    }, 350);
+  }
 
   /** Switch from the settings form to the download/progress view. */
   public showLoading(message: string): void {
@@ -379,9 +428,19 @@ export class StartupScreen {
       notes.push(
         `Talks to a llama.cpp server at ${config.llamaServerUrl}. The server supplies the model, so no download happens here.`,
       );
-      if (this.llamaServerAvailable === false) {
+      const status =
+        this.llamaServerStatus === 'checking'
+          ? 'checking…'
+          : this.llamaServerStatus === 'up'
+            ? 'connected'
+            : this.llamaServerStatus === 'down'
+              ? 'not responding'
+              : 'not checked';
+      notes.push(`Server status: ${status}.`);
+
+      if (this.llamaServerStatus === 'down') {
         warnings.push(
-          `No llama.cpp server answered at ${config.llamaServerUrl}. Start one (see docs/development.md) or switch back to the in-browser runtime.`,
+          `No llama.cpp server answered at ${config.llamaServerUrl}. Start one (docs/development.md) — this screen re-checks automatically — or use the in-browser runtime.`,
         );
       }
       if (config.runBenchmark) {

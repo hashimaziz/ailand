@@ -81,11 +81,15 @@ async function main(): Promise<void> {
 
   const capabilities = await detectCapabilities();
 
-  const screen = new StartupScreen(initial, async (chosen) => {
-    const config = setConfig(chosen);
-    rememberConfig(config);
-    await loadModelAndStart(container, config, screen);
-  });
+  const screen = new StartupScreen(
+    initial,
+    async (chosen) => {
+      const config = setConfig(chosen);
+      rememberConfig(config);
+      await loadModelAndStart(container, config, screen);
+    },
+    { probeLlama: isLlamaServerAvailable },
+  );
   screen.setCapabilities(capabilities);
 
   // Probe once so the menu can say whether the local server is actually there,

@@ -276,6 +276,89 @@ describe('StartupScreen', () => {
     expect(field('.startup__note').textContent).toContain('543 MB');
   });
 
+  it('checks the llama.cpp server when its runtime is selected', async () => {
+    const probed: string[] = [];
+    const live = new StartupScreen(
+      { ...DEFAULT_APP_CONFIG },
+      () => {},
+      {
+        probeLlama: async (url) => {
+          probed.push(url);
+          return true;
+        },
+      },
+    );
+
+    live.root.querySelector<HTMLSelectElement>('.startup__runtime')!.value = 'llamaServer';
+    live.root
+      .querySelector<HTMLSelectElement>('.startup__runtime')!
+      .dispatchEvent(new Event('change'));
+
+    // The note reflects that a check is under way before it resolves.
+    expect(live.root.querySelector('.startup__note')!.textContent).toContain('checking');
+    await new Promise((r) => setTimeout(r, 450));
+
+    expect(probed).toEqual([DEFAULT_APP_CONFIG.llamaServerUrl]);
+    expect(live.root.querySelector('.startup__note')!.textContent).toContain('connected');
+    document.body.innerHTML = '';
+  });
+
+  it('warns when no llama.cpp server answers', async () => {
+    const live = new StartupScreen({ ...DEFAULT_APP_CONFIG }, () => {}, { probeLlama: async () => false });
+    const select = live.root.querySelector<HTMLSelectElement>('.startup__runtime')!;
+    select.value = 'llamaServer';
+    select.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 450));
+
+    const note = live.root.querySelector('.startup__note')!.textContent ?? '';
+    expect(note).toContain('not responding');
+    expect(live.root.querySelector('.startup__warning')!.textContent).toContain(
+      'No llama.cpp server answered',
+    );
+    document.body.innerHTML = '';
+  });
+
+  it('re-checks when the server URL changes', async () => {
+    const probed: string[] = [];
+    const live = new StartupScreen(
+      { ...DEFAULT_APP_CONFIG },
+      () => {},
+      {
+        probeLlama: async (url) => {
+          probed.push(url);
+          return true;
+        },
+      },
+    );
+    const select = live.root.querySelector<HTMLSelectElement>('.startup__runtime')!;
+    select.value = 'llamaServer';
+    select.dispatchEvent(new Event('change'));
+
+    // Typing fires `input`, not `change`.
+    const input = live.root.querySelector<HTMLInputElement>('.startup__server-url')!;
+    input.value = 'http://127.0.0.1:9099';
+    input.dispatchEvent(new Event('input'));
+    await new Promise((r) => setTimeout(r, 450));
+
+    expect(probed).toContain('http://127.0.0.1:9099');
+    document.body.innerHTML = '';
+  });
+
+  it('does not probe while the browser runtime is selected', async () => {
+    let calls = 0;
+    const live = new StartupScreen(
+      { ...DEFAULT_APP_CONFIG },
+      () => {},
+      { probeLlama: async () => { calls++; return true; } },
+    );
+    live.root
+      .querySelector<HTMLSelectElement>('.startup__source')!
+      .dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 450));
+    expect(calls).toBe(0);
+    document.body.innerHTML = '';
+  });
+
   it('mentions that benchmarking downloads every model', () => {
     field<HTMLInputElement>('.startup__bench').checked = true;
     field<HTMLInputElement>('.startup__bench').dispatchEvent(new Event('change'));

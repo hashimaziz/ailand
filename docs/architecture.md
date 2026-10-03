@@ -154,8 +154,15 @@ conversation, memory formation, the UI — knows which runtime is in use. The
 network: chunk boundaries land mid-JSON and mid-`data:` prefix in practice.
 
 The local runtime is an **upgrade, not a requirement**. If no server answers,
-`llama-server` is reported unavailable on the startup screen and the browser
-runtime is used, so the project still runs with no setup.
+the startup screen says so and the browser runtime is used, so the project still
+runs with no setup.
+
+Server availability is **probed when the option is selected**, not once at page
+load. The normal workflow is opening the app, starting the server, then choosing
+the option — a single probe at load would still claim the server was missing. The
+check is debounced, re-runs when the URL is edited (on `input`, not `change`,
+since typing does not blur), and ignores stale results via a probe token so a slow
+early check cannot overwrite a newer one.
 
 Two things it does that the browser runtime cannot:
 

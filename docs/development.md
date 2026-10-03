@@ -80,7 +80,9 @@ llama-server -m ~/path/to/model.gguf --port 8080 --host 127.0.0.1 -c 4096 -ngl 0
 ```
 
 `-ngl 0` keeps it on the CPU. Then choose **Local llama.cpp server** on the
-startup screen; the menu says whether a server answered before you commit. Any
+startup screen, which probes the server as soon as you select it and reports
+`checking…` / `connected` / `not responding`. You can start the server after the
+page has loaded and re-select the option (or edit the URL) to re-check. Any
 OpenAI-compatible server works — `node-llama-cpp` exposes one too.
 
 Good small instruct models in GGUF, verified present on Hugging Face:
