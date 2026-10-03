@@ -1,13 +1,32 @@
 // ─── Model Benchmark Harness ───
 // Developer tool for measuring model performance.
 // Not a gameplay feature — used to compare candidate models.
+//
+// The plan (§3.6, §32) requires a benchmark to decide the default model, and the
+// quality test set in §33 to judge responses. Both live here. Quality flags exist
+// because reading truncated responses is not a measurement: the failure modes we
+// actually care about (assistant register, echoing the player, re-introducing
+// itself mid-conversation) are all mechanically detectable.
 
 import { LanguageModel, ChatMessage, GenerationConfig, GenerationUsage } from './LanguageModel';
 
 export interface BenchmarkFixture {
   name: string;
+  /** What a good answer looks like, for the developer's judgement. */
+  expectation: string;
   messages: ChatMessage[];
   generationConfig: GenerationConfig;
+}
+
+export interface QualityFlags {
+  /** Assistant/service-desk register instead of a neighbour's voice. */
+  assistantRegister: boolean;
+  /** The player's question reproduced verbatim in the reply. */
+  echoesPlayer: boolean;
+  /** Reintroduced itself when the conversation was already underway. */
+  reintroduced: boolean;
+  /** Answered with something mechanically checkable (identity, hours). */
+  tooLong: boolean;
 }
 
 export interface BenchmarkResult {
@@ -22,62 +41,148 @@ export interface BenchmarkResult {
   tokensPerSecond: number;
   promptTokens: number;
   response: string;
+  flags: QualityFlags;
 }
 
-// Default benchmark fixtures for NPC dialogue testing
+const CONCISE: GenerationConfig = {
+  maxNewTokens: 96,
+  temperature: 0.7,
+  topP: 0.8,
+  topK: 20,
+  doSample: true,
+};
+
+const NPC_SYSTEM = (name: string, role: string, voice: string[]): ChatMessage => ({
+  role: 'system',
+  content: [
+    `You are ${name}, ${role}, standing in a small neighbourhood and talking to someone face to face. You are not an assistant.`,
+    'Answer in your own voice, one to three short sentences, like a neighbour having a moment.',
+    'Greet and introduce yourself once, at the start. Afterwards, continue the conversation instead of starting over.',
+    'Do not echo their words back at them.',
+    'Sound like a neighbour, never like a service desk.',
+    '',
+    'Things you say, in your own voice:',
+    ...voice.map((line) => `- "${line}"`),
+  ].join('\n'),
+});
+
+/** Fixtures mirroring the quality test set in the plan (§33) plus observed failures. */
 export const DEFAULT_FIXTURES: BenchmarkFixture[] = [
   {
     name: 'identity_consistency',
+    expectation: 'Answers according to occupation without prompting for it.',
     messages: [
-      {
-        role: 'system',
-        content: 'You are Maria, a 28-year-old barista at the local coffee shop. You are friendly and observant. Keep responses to 1-3 short sentences.',
-      },
+      NPC_SYSTEM('Maria', 'a barista at the West Coffee Shop', [
+        'Morning! The usual? You look like a long one.',
+      ]),
       { role: 'user', content: 'What do you do around here?' },
     ],
-    generationConfig: {
-      maxNewTokens: 64,
-      temperature: 0.7,
-      topP: 0.8,
-      topK: 20,
-      doSample: true,
-    },
+    generationConfig: CONCISE,
+  },
+  {
+    name: 'greeting_register',
+    expectation: 'Greets like a person, not "How can I help you?".',
+    messages: [
+      NPC_SYSTEM('Maria', 'a barista at the West Coffee Shop', [
+        'Morning! The usual?',
+      ]),
+      { role: 'user', content: 'Hello Maria' },
+    ],
+    generationConfig: CONCISE,
+  },
+  {
+    name: 'no_reintroduction',
+    expectation: 'Continues the conversation; does NOT greet or introduce again.',
+    messages: [
+      NPC_SYSTEM('Maria', 'a barista at the West Coffee Shop', ['Morning! The usual?']),
+      { role: 'user', content: 'Hello Maria' },
+      { role: 'assistant', content: "Morning! I'm Maria, I run the coffee place on the corner." },
+      { role: 'user', content: 'Have we met before?' },
+    ],
+    generationConfig: CONCISE,
+  },
+  {
+    name: 'question_not_echoed',
+    expectation: 'Answers the question instead of repeating it back.',
+    messages: [
+      NPC_SYSTEM('David', 'the owner of the East Shop', ["What do you need?"]),
+      { role: 'user', content: 'Have we met before?' },
+    ],
+    generationConfig: CONCISE,
   },
   {
     name: 'memory_recall',
+    expectation: 'Recalls the remembered fact without restating the whole prompt.',
     messages: [
+      NPC_SYSTEM('David', 'the owner of the East Shop', [
+        'You helped me carry the sign in, once.',
+      ]),
       {
         role: 'system',
-        content: 'You are David, a 45-year-old shopkeeper. You are grumpy and practical. You remember: the player helped fix the shop sign last week. Keep responses to 1-3 short sentences.',
+        content:
+          '=== RETRIEVED MEMORIES ===\n- [episodic/player, conf 0.9] The player helped carry the shop sign last week.',
       },
       { role: 'user', content: 'Hey David, remember me?' },
     ],
-    generationConfig: {
-      maxNewTokens: 64,
-      temperature: 0.7,
-      topP: 0.8,
-      topK: 20,
-      doSample: true,
-    },
+    generationConfig: CONCISE,
   },
   {
-    name: 'conciseness',
+    name: 'world_truth_grounding',
+    expectation: 'States the authoritative fact, or admits uncertainty. No invention.',
     messages: [
+      NPC_SYSTEM('David', 'the owner of the East Shop', ['Paint, mostly.']),
       {
         role: 'system',
-        content: 'You are a friendly neighborhood barista named Maria. Keep responses to 1-3 short sentences. Do not write long paragraphs.',
+        content:
+          '=== WORLD TRUTH ===\n- The coffee shop on the west side opens at 07:00 and closes at 18:00.\n=== RETRIEVED MEMORIES ===\n- [belief/inference, conf 0.5] The coffee shop keeps better hours than the sign advertises.',
       },
-      { role: 'user', content: 'How is the weather today?' },
+      { role: 'user', content: "When does the coffee shop close?" },
     ],
-    generationConfig: {
-      maxNewTokens: 128,
-      temperature: 0.7,
-      topP: 0.9,
-      topK: 40,
-      doSample: true,
-    },
+    generationConfig: CONCISE,
   },
 ];
+
+const ASSISTANT_PHRASES = [
+  'how can i help',
+  'how may i assist',
+  'is there anything else',
+  'let me know if',
+  'i hope this helps',
+  'feel free to ask',
+];
+
+const INTRO_PHRASES = [
+  "i'm ",
+  'my name is',
+  'i am a',
+  'i work as',
+];
+
+/**
+ * Mechanically detectable quality problems.
+ *
+ * `tooLong` is a proxy for rambling rather than a real length check: four or more
+ * sentences is well past the one-to-three the design calls for.
+ */
+export function scoreResponse(fixture: BenchmarkFixture, response: string): QualityFlags {
+  const lower = response.toLowerCase();
+  const lastUser = [...fixture.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const question = lastUser.replace(/[?!.]+$/, '').trim().toLowerCase();
+
+  const midConversation = fixture.messages.some((m) => m.role === 'assistant');
+  const sentenceCount = response.split(/[.!?]+\s/).filter((s) => s.trim().length > 0).length;
+
+  return {
+    assistantRegister: ASSISTANT_PHRASES.some((p) => lower.includes(p)),
+    echoesPlayer: question.length > 8 && lower.includes(question),
+    reintroduced: midConversation && INTRO_PHRASES.some((p) => lower.includes(p)),
+    tooLong: sentenceCount > 4,
+  };
+}
+
+export function countFlags(flags: QualityFlags): number {
+  return Object.values(flags).filter(Boolean).length;
+}
 
 export class ModelBenchmark {
   async run(
@@ -118,6 +223,7 @@ export class ModelBenchmark {
         tokensPerSecond: usage?.tokensPerSecond ?? 0,
         promptTokens: usage?.promptTokens ?? 0,
         response,
+        flags: scoreResponse(fixture, response),
       });
     }
 
@@ -135,12 +241,16 @@ export class ModelBenchmark {
     ];
 
     for (const r of results) {
+      const flags = Object.entries(r.flags)
+        .filter(([, on]) => on)
+        .map(([name]) => name);
       lines.push(`\n[${r.fixture}]`);
       lines.push(`  First token: ${r.firstTokenMs.toFixed(0)}ms`);
       lines.push(`  Total: ${r.generationMs.toFixed(0)}ms`);
       lines.push(`  Tokens: ${r.outputTokens}`);
       lines.push(`  Speed: ${r.tokensPerSecond.toFixed(1)} tok/s`);
-      lines.push(`  Response: "${r.response.slice(0, 120)}${r.response.length > 120 ? '...' : ''}"`);
+      lines.push(`  Flags: ${flags.length === 0 ? 'none' : flags.join(', ')}`);
+      lines.push(`  Response: "${r.response.slice(0, 160)}${r.response.length > 160 ? '...' : ''}"`);
     }
 
     lines.push(`\n═══════════════════════════════\n`);

@@ -62,3 +62,6 @@ Deferred, and why:
   memories to evaluate against the memory-selectivity test set in plan §33.
 - **Queued extraction** — memory formation competes with conversation for a single
   generation slot (plan §27). One conversation at a time makes this invisible.
+- **Choosing the default model on measured evidence** — the harness now exists
+  (`?bench=1`), so this is reduced to running it once in a WebGPU browser and
+  recording the result. It should be recorded in this file when it is done.

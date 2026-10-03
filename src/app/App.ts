@@ -13,7 +13,8 @@ import { MemoryProposalPanel } from '../ui/MemoryProposalPanel';
 import { buildSeedMemories } from '../memory/seedMemories';
 import { memoryStore } from '../memory/MemoryStore';
 import { ConversationManager } from '../conversation/ConversationManager';
-import { createLanguageModel } from '../ai/createLanguageModel';
+import { createLanguageModel, isBenchmarkRequested } from '../ai/createLanguageModel';
+import { runBenchmark } from '../ai/benchmarkMode';
 import { DeferredLanguageModel } from '../ai/DeferredLanguageModel';
 import { getModelConfig } from '../ai/ModelConfig';
 import { LanguageModel } from '../ai/LanguageModel';
@@ -144,6 +145,10 @@ export class App {
     // Start loading the language model after the first frame so the world is
     // interactive while the model downloads.
     void this.warmUpLanguageModel();
+
+    if (isBenchmarkRequested()) {
+      void runBenchmark();
+    }
   }
 
   private async createModel(): Promise<LanguageModel> {

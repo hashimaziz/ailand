@@ -32,12 +32,31 @@ keeping test runs free of model downloads:
 | --- | --- |
 | `?mockAi=1` | Always use `MockLanguageModel` |
 | `?realAi=1` | Skip capability detection and attempt the real download |
-| *(none)* | Use the real model when a WebGPU adapter exists, otherwise fall back to the mock and say why in the status panel |
+| `?model=<key>` | Use a specific candidate from `MODEL_CONFIGS` (e.g. `qwen3-1.7b`). Unknown keys are ignored. |
+| `?bench=1` | Benchmark every candidate and print a comparison to the console |
+| *(none)* | Real model when WebGPU is available, otherwise fall back to the mock and say why |
 
 The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
 `src/ai/ModelConfig.ts` for the candidate set. Expect a download of several
-hundred megabytes on first real-model run. Transformers.js caches it in the
-browser, so subsequent runs reuse it.
+hundred megabytes on first real-model run — about 543 MB for the 0.6B candidate,
+1360 MB for the 1.7B one. Transformers.js caches it in the browser, so subsequent
+runs reuse it.
+
+### Choosing a model
+
+The default was adopted by assumption rather than measurement, and a sub-billion
+model has visibly more trouble holding an in-character voice. If dialogue quality
+seems off, measure before tuning prompts further:
+
+1. Open `http://localhost:5173/?bench=1` in a WebGPU-capable browser. It runs every
+   candidate through the quality test set and logs a comparison table.
+2. Read the flags. `assistantRegister`, `echoesPlayer`, `reintroduced`, and
+   `tooLong` are the failure modes that show up in play; fewer is better.
+3. Play with the winner using `?model=<key>`, then change `DEFAULT_MODEL_KEY`.
+
+Latency matters too — a model that answers in character but slowly is a better
+trade than a fast one that says "How can I help you?". The benchmark reports
+time-to-first-token and tokens/sec so the trade is visible.
 
 Reasoning is disabled for dialogue (`enableThinking: false`), and `ThinkingFilter`
 strips any `<think>` block from the stream regardless. If you swap in a
@@ -75,6 +94,7 @@ tests/unit/MemoryFormation.test.ts   extraction prompt and tolerant JSON parsing
 tests/unit/MemoryProcessor.test.ts   accept/reject/merge/supersede/prune policy
 tests/unit/Relationship.test.ts      relationship defaults, clamping, bounded deltas
 tests/unit/ThinkingFilter.test.ts    reasoning-strip stream filter, incl. split tags
+tests/unit/ModelBenchmark.test.ts    quality scorer, fixtures, model candidates
 ```
 
 `MemoryProcessor` depends on a narrow `MemoryPersistence` port rather than

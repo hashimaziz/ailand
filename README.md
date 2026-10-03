@@ -40,6 +40,8 @@ cached by the browser. The world is fully explorable while it downloads.
 | --- | --- |
 | `?mockAi=1` | Use the deterministic mock model. No download, no WebGPU needed. |
 | `?realAi=1` | Force the real model download even if WebGPU detection fails. |
+| `?model=<key>` | Try a different model candidate, e.g. `?model=qwen3-1.7b`. |
+| `?bench=1` | Benchmark every model candidate and log a comparison to the console. |
 | *(none)* | Real model when WebGPU is available, otherwise mock, with the reason shown. |
 
 ### Controls

@@ -95,10 +95,20 @@ rather than leaving an empty reply.
 | `?mockAi=1` | `MockLanguageModel` |
 | WebGPU adapter unavailable | `MockLanguageModel`, with the reason surfaced in the status panel |
 | `?realAi=1` | skips detection, forces the download attempt |
+| `?model=<key>` | uses that candidate from `MODEL_CONFIGS` instead of the default |
 | otherwise | `AiWorkerClient`, falling back to the mock if load fails |
 
 The main thread never imports transformers.js; `src/ai/worker.ts` owns a single
 pipeline instance shared by every NPC.
+
+### Choosing a model
+
+Candidates live in `src/ai/ModelConfig.ts`. `?bench=1` runs every candidate
+through the quality test set and prints latency, throughput, and quality flags to
+the console; `?model=qwen3-1.7b` then lets you play with the winner immediately.
+The scorer flags the failure modes that actually occur in play — assistant
+register, echoing the player, re-introducing mid-conversation, rambling — because
+reading truncated responses is not a measurement.
 
 ## Conversation pipeline
 
@@ -133,6 +143,35 @@ Recent dialogue is replayed as **real alternating chat turns** (`user` /
 `assistant`) newest-first under budget, not as a prose recap block preceded by a
 fabricated acknowledgement turn. The current player message is always the final
 turn.
+
+### Prompt design
+
+Conversation context is per-session: the turn list lives on the conversation
+session, is replayed into the prompt while the conversation is open, and is
+discarded when it closes. Nothing about the live conversation is persisted. A new
+conversation starts from memory alone, which is the behaviour the prototype is
+built to demonstrate.
+
+The system prompt is written as **positive instructions plus a worked example**,
+not as a list of prohibitions. A rule-only version ("Stay in character", "You are
+not a generic assistant", "Do not invent world facts") produced three consistent
+failures with a 0.6B model: assistant/service-desk register ("How can I help
+you?"), a fresh self-introduction on every turn, and replies that echoed the
+player's question back verbatim. Small models imitate demonstrations far more
+reliably than they obey negations, so the prompt now:
+
+- states the scene concretely (a person standing face to face, not "a game"),
+- names the register to avoid, so the prohibition is concrete rather than implied,
+- tells the model to greet **once** and then continue,
+- includes two lines of the character's own voice from `PersonalityProfile.voiceExamples`,
+- includes a worked two-turn exchange, deliberately about a character who is *not*
+  in the world so it cannot contaminate what the model believes about real NPCs,
+- converts the relationship numbers into guidance it can act on
+  (`relationshipGuidance`): warm and brief with a friend, do not re-introduce to an
+  acquaintance, reserved with a stranger.
+
+Occupations are rendered as prose via `OCCUPATION_LABELS` rather than as debug
+slugs like `barista`.
 
 ## Memory
 
@@ -226,6 +265,16 @@ Recorded per the instruction in the plan to document deviations as they arise.
     `MemoryPersistence` port so the policy is testable against an in-memory
     store. The same seam is what plan §25 asks for in "save/load persistence
     using a testable persistence adapter".
+11. **The default model was never benchmarked.** The plan (§3.6, §32) requires
+    benchmarking candidates *before* one becomes the default, and `ModelBenchmark`
+    existed from Milestone 5 with nothing able to invoke it. Qwen3-0.6B was
+    adopted by assumption and is visibly underpowered for sustained in-character
+    voice. `?bench=1` now makes the comparison possible, and `?model=` lets you
+    play with a different candidate without editing code. **The default has still
+    not been chosen on measured evidence** — that needs a WebGPU browser.
+12. **Prompt rules alone do not hold a small model in character.** See
+    [Prompt design](#prompt-design). Negations are weakly represented at this
+    size; demonstrations and concrete register instructions do the work.
 
 ## Known gaps at this milestone
 
