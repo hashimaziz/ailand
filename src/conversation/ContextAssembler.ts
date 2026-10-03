@@ -9,18 +9,11 @@ import {
   AssembledContext,
   PlayerRelationshipSnapshot,
 } from './ConversationTypes';
+import { defaultPlayerRelationship } from '../npc/Relationship';
 
 const retriever = new MemoryRetriever();
 
-export function defaultPlayerRelationship(npc: Npc): PlayerRelationshipSnapshot {
-  return {
-    familiarity: 0.15,
-    trust: npc.personality.trustBaseline * 0.4,
-    affection: 0.2,
-    tension: 0.05,
-    labels: ['stranger'],
-  };
-}
+export { defaultPlayerRelationship };
 
 export class ContextAssembler {
   public async assemble(input: {
@@ -30,7 +23,7 @@ export class ContextAssembler {
     formattedTime: string;
     relationship?: PlayerRelationshipSnapshot;
   }): Promise<AssembledContext> {
-    const allMemories = await memoryStore.getMemories(input.npc.id);
+    const allMemories = await memoryStore.getActiveMemories(input.npc.id);
     const mentionedEntities = extractMentionedEntities(input.playerMessage);
 
     const ranked = retriever.retrieve(

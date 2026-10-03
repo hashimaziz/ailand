@@ -9,6 +9,9 @@ import { NpcSimulation } from '../npc/NpcSimulation';
 import { fixtures } from '../npc/fixtures';
 import { StatusPanel } from '../ui/StatusPanel';
 import { DialoguePanel } from '../ui/DialoguePanel';
+import { MemoryProposalPanel } from '../ui/MemoryProposalPanel';
+import { buildSeedMemories } from '../memory/seedMemories';
+import { memoryStore } from '../memory/MemoryStore';
 import { ConversationManager } from '../conversation/ConversationManager';
 import { createLanguageModel } from '../ai/createLanguageModel';
 import { DeferredLanguageModel } from '../ai/DeferredLanguageModel';
@@ -26,6 +29,7 @@ export class App {
   private npcSimulation!: NpcSimulation;
   private statusPanel!: StatusPanel;
   private dialoguePanel!: DialoguePanel;
+  private memoryPanel!: MemoryProposalPanel;
   private conversationManager!: ConversationManager;
   private languageModel!: LanguageModel;
   private modelStatusNote = '';
@@ -64,6 +68,9 @@ export class App {
         npcRegistry.register(f);
         await db.saveNpc(f);
       }
+      for (const memory of buildSeedMemories()) {
+        await memoryStore.save(memory);
+      }
     }
 
     this.npcSimulation = new NpcSimulation(npcRegistry, this.worldClock, this.scene.instance);
@@ -90,8 +97,11 @@ export class App {
             showRetry: !this.languageModel.isReady(),
           });
         },
+        onMemoryFormation: (record) => this.memoryPanel.append(record),
       },
     );
+
+    this.memoryPanel = new MemoryProposalPanel();
 
     this.dialoguePanel = new DialoguePanel({
       onSend: (message) => {

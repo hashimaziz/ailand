@@ -6,10 +6,18 @@ import {
 import { Npc } from '../npc/types';
 import { npcRegistry } from '../npc/NpcRegistry';
 import { memoryStore } from '../memory/MemoryStore';
-import { db } from '../persistence/Database';
+import { MemoryProcessor, MemoryFormationOutcome } from '../memory/MemoryProcessor';
+import {
+  buildExtractionMessages,
+  extractionGenerationConfig,
+  parseExtractionResponse,
+} from '../memory/MemoryFormation';
+import { MemoryProposalRecord } from '../memory/MemoryTypes';
+import { CONVERSATION_CONFIG, MEMORY_CONFIG } from '../config/gameConfig';
 import { generateId } from '../utils/ids';
-import { CONVERSATION_CONFIG } from '../config/gameConfig';
-import { contextAssembler, defaultPlayerRelationship } from './ContextAssembler';
+import { relationshipStore } from '../npc/RelationshipStore';
+import { STRANGER_RELATIONSHIP } from '../npc/Relationship';
+import { contextAssembler } from './ContextAssembler';
 import { promptBuilder } from './PromptBuilder';
 import {
   BuiltPrompt,
@@ -25,6 +33,7 @@ export interface ConversationUiCallbacks {
   onNpcReplyComplete: (fullText: string) => void;
   onError: (message: string) => void;
   onPromptBuilt?: (prompt: BuiltPrompt) => void;
+  onMemoryFormation?: (record: MemoryProposalRecord) => void;
 }
 
 export class ConversationManager {
@@ -33,6 +42,7 @@ export class ConversationManager {
   private activeRequestId: string | null = null;
   private modelReady = false;
   private lastPrompt: BuiltPrompt | null = null;
+  private memoryProcessor = new MemoryProcessor();
 
   constructor(
     private languageModel: LanguageModel,
@@ -103,8 +113,15 @@ export class ConversationManager {
       void this.languageModel.cancel(this.activeRequestId);
       this.activeRequestId = null;
     }
+    const finished = this.session;
     this.session = null;
     this.setPhase(this.modelReady ? 'ready' : 'idle');
+
+    if (finished) {
+      // Formation runs after the panel closes so the player is never held
+      // waiting on a second model round-trip.
+      void this.formMemories(finished);
+    }
   }
 
   public async sendPlayerMessage(text: string): Promise<void> {
@@ -240,21 +257,109 @@ export class ConversationManager {
 
   private async loadRelationship(npcId: string): Promise<PlayerRelationshipSnapshot> {
     const npc = npcRegistry.get(npcId);
-    const key = `relationship_${npcId}_player`;
-    const saved = await db.loadMeta(key);
-    if (saved && typeof saved === 'object') {
-      return saved as PlayerRelationshipSnapshot;
-    }
     if (!npc) {
-      return {
-        familiarity: 0.1,
-        trust: 0.3,
-        affection: 0.1,
-        tension: 0.05,
-        labels: ['stranger'],
-      };
+      return { ...STRANGER_RELATIONSHIP, labels: [...STRANGER_RELATIONSHIP.labels] };
     }
-    return defaultPlayerRelationship(npc);
+    return relationshipStore.load(npc);
+  }
+
+  /**
+   * Distil a finished conversation into durable memories.
+   *
+   * Structured extraction is a second, low-temperature generation. It is skipped
+   * for conversations too small to contain anything worth keeping, and any
+   * failure is reported without touching existing memory: a broken extraction
+   * must never corrupt what the NPC already knows.
+   */
+  private async formMemories(session: ConversationSession): Promise<void> {
+    const npc = npcRegistry.get(session.npcId);
+    if (!npc) return;
+
+    const playerTurns = session.turns.filter((t) => t.role === 'player');
+    const totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
+
+    if (
+      playerTurns.length < MEMORY_CONFIG.minPlayerTurns ||
+      totalChars < MEMORY_CONFIG.minConversationChars
+    ) {
+      this.ui.onMemoryFormation?.({
+        npcId: npc.id,
+        proposals: [],
+        skipped: `conversation too short to remember (${totalChars} chars, ${playerTurns.length} player turns)`,
+      });
+      return;
+    }
+
+    const startTime = performance.now();
+
+    if (!this.languageModel.isReady()) {
+      const ready = await this.ensureModelReady();
+      if (!ready) {
+        this.ui.onMemoryFormation?.({
+          npcId: npc.id,
+          proposals: [],
+          error: 'language model unavailable, no memories formed',
+        });
+        return;
+      }
+    }
+
+    let raw = '';
+    try {
+      await this.languageModel.generate(
+        generateId('extract_'),
+        buildExtractionMessages({ npc, turns: session.turns }),
+        extractionGenerationConfig(),
+        (event) => {
+          if (event.type === 'token') raw += event.text;
+          else if (event.type === 'completed') raw = event.fullText || raw;
+        },
+      );
+    } catch (err) {
+      this.ui.onMemoryFormation?.({
+        npcId: npc.id,
+        proposals: [],
+        error: err instanceof Error ? err.message : 'memory extraction failed',
+      });
+      return;
+    }
+
+    const parsed = parseExtractionResponse(raw);
+    if (!parsed) {
+      this.ui.onMemoryFormation?.({
+        npcId: npc.id,
+        proposals: [],
+        error: 'could not parse structured extraction output',
+        durationMs: performance.now() - startTime,
+      });
+      return;
+    }
+
+    const currentRelationship = await relationshipStore.load(npc);
+    const outcome: MemoryFormationOutcome = await this.memoryProcessor.process({
+      npc,
+      candidates: parsed.memories,
+      relationshipUpdates: parsed.relationshipUpdates,
+      currentRelationship,
+      worldTime: this.getWorldTime(),
+      warnings: parsed.warnings,
+    });
+
+    if (outcome.relationship) {
+      await relationshipStore.save(npc.id, outcome.relationship.after);
+    }
+
+    const record: MemoryProposalRecord = {
+      npcId: npc.id,
+      proposals: outcome.proposals,
+      durationMs: performance.now() - startTime,
+    };
+    console.info(
+      `[MEMORY] ${npc.identity.name}: ${outcome.proposals.filter((p) => p.decision === 'accepted').length} accepted, `
+      + `${outcome.proposals.filter((p) => p.decision === 'merged').length} merged, `
+      + `${outcome.proposals.filter((p) => p.decision === 'rejected').length} rejected`,
+    );
+    this.ui.onMemoryFormation?.(record);
   }
 
   private async touchMemories(npcId: string, memoryIds: string[]) {
@@ -264,7 +369,7 @@ export class ConversationManager {
     for (const mem of memories) {
       if (memoryIds.includes(mem.id)) {
         mem.lastAccessedAt = now;
-        await db.saveMemory(mem);
+        await memoryStore.save(mem);
       }
     }
   }

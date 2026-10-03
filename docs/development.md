@@ -64,11 +64,19 @@ tests/unit/ConversationPrompt.test.ts  prompt assembly and budgeting
 tests/unit/ContextBudget.test.ts     budget trimming helpers
 tests/unit/DialoguePanel.test.ts     dialogue UI states
 tests/unit/MemoryRetriever.test.ts   memory ranking
+tests/unit/MemoryValidator.test.ts   candidate normalization and authority rules
+tests/unit/MemoryFormation.test.ts   extraction prompt and tolerant JSON parsing
+tests/unit/MemoryProcessor.test.ts   accept/reject/merge/supersede/prune policy
+tests/unit/Relationship.test.ts      relationship defaults, clamping, bounded deltas
 ```
 
-To add coverage that needs persistence, note that jsdom does not implement
-IndexedDB. Introduce a persistence adapter seam (plan §25 calls for a testable
-persistence adapter) rather than pulling in a fake database.
+`MemoryProcessor` depends on a narrow `MemoryPersistence` port rather than
+IndexedDB directly, which is how the memory policy is tested without a database.
+Use that seam rather than reaching into `Database` from a test.
+
+To add coverage that needs real persistence, note that jsdom does not implement
+IndexedDB. Either test through the port with an in-memory double, or install
+`fake-indexeddb` and point `Database` at it.
 
 ## Manual verification
 
@@ -82,7 +90,11 @@ The deterministic checks that matter most, and how to run them:
    transcript.
 4. Send a second message and press **Cancel reply** mid-stream. The partial reply
    is kept in the transcript and the composer becomes usable again.
-5. Reload the page. The clock and NPC positions persist from IndexedDB.
+5. Close the conversation and expand the **Memory** panel in the bottom-left. Every
+   proposed memory appears with the decision made and the reason for it.
+6. Reload the page and talk to Maria again. Her relationship section in the prompt
+   now reads `acquaintance`, and the memory you formed in step 5 appears under
+   RETRIEVED MEMORIES.
 
 Headless browser automation cannot capture the pointer, so any Playwright test
 must stub `pointerLockElement` or the game needs a non-pointer-locked entry

@@ -45,6 +45,82 @@ function buildInCharacterReply(npcName: string | null, playerMessage: string): s
   return `I hear you. As ${name}, I'll remember we talked about that.`;
 }
 
+const EXTRACTION_MARKER = 'Reply with one JSON object';
+
+function extractCharacterName(messages: ChatMessage[]): string {
+  const user = messages.find((m) => m.role === 'user')?.content ?? '';
+  const match = user.match(/^CHARACTER:\s*([^,\n]+)/);
+  return match?.[1]?.trim() ?? 'the neighbour';
+}
+
+function isExtractionRequest(messages: ChatMessage[]): boolean {
+  const system = messages.find((m) => m.role === 'system')?.content ?? '';
+  return system.includes(EXTRACTION_MARKER);
+}
+
+/**
+ * Deterministic stand-in for structured memory extraction.
+ *
+ * The prototype's whole point is that an NPC remembers you across visits, so the
+ * offline mock has to produce a usable extraction envelope rather than nothing.
+ * It proposes the player's own statements, which are the safest thing to persist.
+ */
+function buildExtractionReply(messages: ChatMessage[]): string {
+  const user = messages.find((m) => m.role === 'user')?.content ?? '';
+  const npcName = extractCharacterName(messages);
+
+  const transcript = user.split('CONVERSATION:')[1]?.split('JSON:')[0] ?? '';
+  const playerLines = transcript
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith(`${npcName}:`))
+    .map((line) => line.replace(/^[^:]+:\s*/, ''));
+
+  const memories: unknown[] = [];
+
+  const nameStatement = playerLines.find((line) => /my name is/i.test(line));
+  if (nameStatement) {
+    const name = nameStatement.match(/my name is\s+([^\s,.!?]+)/i)?.[1];
+    memories.push({
+      type: 'episodic',
+      content: name
+        ? `The player introduced themselves as ${name}.`
+        : 'The player said their name.',
+      importance: 0.8,
+      confidence: 0.95,
+      source: 'player',
+      entities: ['player', ...(name ? [name.toLowerCase()] : [])],
+    });
+  }
+
+  const substantive = [...playerLines]
+    .filter((line) => line.length >= 24 && !/my name is/i.test(line))
+    .sort((a, b) => b.length - a.length)[0];
+  if (substantive) {
+    memories.push({
+      type: 'episodic',
+      content: `The player told ${npcName}: "${substantive}"`,
+      importance: 0.55,
+      confidence: 0.9,
+      source: 'player',
+      entities: ['player', npcName.toLowerCase()],
+    });
+  }
+
+  return JSON.stringify({
+    memories,
+    relationship_updates: memories.length
+      ? [
+          {
+            delta: { familiarity: 0.05, trust: 0.03, affection: 0.02, tension: 0 },
+            labels: ['acquaintance'],
+            reason: 'met and had a real exchange',
+          },
+        ]
+      : [],
+  });
+}
+
 export class MockLanguageModel implements LanguageModel {
   private ready = false;
   private cancelled = new Set<string>();
@@ -81,9 +157,9 @@ export class MockLanguageModel implements LanguageModel {
 
     onEvent({ type: 'started', requestId });
 
-    const npcName = extractNpcName(messages);
-    const playerMessage = extractLastUserMessage(messages);
-    const response = buildInCharacterReply(npcName, playerMessage);
+    const response = isExtractionRequest(messages)
+      ? buildExtractionReply(messages)
+      : buildInCharacterReply(extractNpcName(messages), extractLastUserMessage(messages));
 
     // Simulate streaming: emit word by word with a small delay
     const words = response.split(' ');

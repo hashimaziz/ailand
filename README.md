@@ -53,6 +53,7 @@ to the NPC you are facing, `Esc` to close a conversation.
 | --- | --- |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | The authoritative engineering plan: thesis, locked decisions, domain model, milestones, acceptance criteria |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture as implemented, plus deviations and findings |
+| [`docs/memory-system.md`](docs/memory-system.md) | How memories form, what the model is allowed to propose, and the policy that decides |
 | [`docs/roadmap.md`](docs/roadmap.md) | Milestone status and what is deferred |
 | [`docs/development.md`](docs/development.md) | Setup, model selection, testing, manual verification |
 
@@ -65,10 +66,16 @@ npm run test:e2e # Playwright (no specs yet)
 
 ## Current State
 
-Milestones 0–6 are complete: project foundation, WebGPU render shell, playable
+Milestones 0–7 are complete: project foundation, WebGPU render shell, playable
 neighborhood, NPC schedules and simulation, IndexedDB persistence and the memory
-schema, the local AI runtime, and the conversation pipeline. Memory formation —
-turning conversations into persistent memories — is in progress.
+schema, the local AI runtime, the conversation pipeline, and memory formation.
+
+The core loop now works end to end. Introduce yourself to an NPC, close the
+conversation, reload the page, and talk to them again: their relationship has
+moved from `stranger` to `acquaintance`, and what you told them is in their
+retrieved memories. The **Memory** panel in the bottom-left shows every memory
+the model proposed after each conversation and whether it was remembered, merged,
+or discarded with the reason.
 
 Known limitations are listed at the end of
 [`docs/architecture.md`](docs/architecture.md#known-gaps-at-this-milestone).

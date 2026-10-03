@@ -124,3 +124,65 @@ body, html {
 .dialogue-panel__retry {
   display: none;
 }
+
+.memory-panel {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 150;
+  width: min(420px, calc(100vw - 24px));
+  max-height: 40vh;
+  overflow-y: auto;
+  color: #e8e8e8;
+  background: rgba(18, 22, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+}
+
+.memory-panel__summary {
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.memory-panel__badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 0.72rem;
+}
+
+.memory-panel__list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-panel__entry {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.2);
+  color: #b9b9b9;
+  overflow-wrap: anywhere;
+}
+
+.memory-panel__entry--accepted {
+  border-left-color: #6fcf8f;
+  color: #d6efdd;
+}
+
+.memory-panel__entry--rejected {
+  border-left-color: #b0788a;
+  color: #c9aeb6;
+}
+
+.memory-panel__entry--error {
+  border-left-color: #e07a7a;
+  color: #f0c4c4;
+}

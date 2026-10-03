@@ -18,8 +18,8 @@ main.ts
        ├─ render/    Scene · Camera · Renderer · Lighting      (Three.js)
        ├─ world/     Neighborhood · LocationRegistry · WorldClock
        ├─ player/    PlayerController · InteractionController
-       ├─ npc/       NpcRegistry · NpcSimulation · fixtures
-       ├─ ui/        StatusPanel · DialoguePanel
+       ├─ npc/       NpcRegistry · NpcSimulation · Relationship · fixtures
+       ├─ ui/        StatusPanel · DialoguePanel · MemoryProposalPanel
        ├─ persistence/Database                                 (IndexedDB via idb)
        ├─ conversation/ ConversationManager
        │    ├─ ContextAssembler ── MemoryRetriever ── MemoryStore ── Database
@@ -32,6 +32,9 @@ main.ts
             ├─ worker.ts               ONLY module importing transformers.js
             └─ MockLanguageModel       deterministic, AI-free tests
 ```
+
+Memory formation (`MemoryFormation` → `MemoryProcessor` → `MemoryValidator`) is
+described in [`memory-system.md`](./memory-system.md).
 
 ## AI runtime
 
@@ -112,6 +115,12 @@ turn.
 `source` (`world | player | npc | observation | inference`), `importance`,
 `confidence`, `entities`, optional `locationId`, and `supersedesId`.
 
+Memories are formed after a conversation closes: a second, low-temperature
+generation proposes structured JSON candidates, `MemoryProcessor` applies the
+policy, and only accepted candidates reach IndexedDB. The model cannot propose a
+`world` source or a canonical `fact` at all. See
+[`memory-system.md`](./memory-system.md) for the full policy.
+
 Retrieval (`src/memory/MemoryRetriever.ts`) is fully deterministic — no
 embeddings, no vector store — and currently scores:
 
@@ -124,14 +133,15 @@ embeddings, no vector store — and currently scores:
 
 Ties break on the stable sort, preserving the order returned by IndexedDB. The top
 10 candidates are returned; `fitItemsToBudget` then trims them to the memory
-character budget when the prompt is built.
+character budget when the prompt is built. Superseded memories are excluded before
+scoring, so an obsolete belief is never offered as current.
 
 ## Persistence
 
 IndexedDB database `ai-city`, version 1, three stores: `npcs`, `memories`
 (indexed `by-npc`), and `meta`. NPC state and the world clock are autosaved every
-5 seconds. `memories` and `meta` have no writer yet — nothing creates memories or
-relationship snapshots until Milestone 7 lands.
+5 seconds. Memories are written as conversations close; the player relationship
+snapshot for an NPC lives in `meta` under `relationship_<npcId>_player`.
 
 ## World
 
@@ -172,15 +182,27 @@ Recorded per the instruction in the plan to document deviations as they arise.
    does not pass `enable_thinking` through to the Qwen3 chat template. Until it
    does, Qwen3 may emit reasoning tokens that are billed and streamed as dialogue.
    This is a real latency and quality risk for the default model.
+8. **Memory formation is a second model round-trip.** Extracting structured
+   memories after a conversation doubles the generation work per conversation. It
+   runs after the panel closes, in the background, and only for conversations that
+   clear a significance gate, but it is still the most expensive thing the memory
+   system does. Queuing it behind the conversation queue (plan §27) is the
+   natural follow-up once more than one conversation can be open.
+9. **Supersession needs exact entity-set agreement.** Cheap and safe, but it will
+   miss contradictions phrased differently. Accepted as a deliberate trade: a
+   wrong supersede destroys a still-true memory, a missed one merely leaves two
+   memories in tension.
+10. **jsdom has no IndexedDB.** `MemoryProcessor` therefore takes a narrow
+    `MemoryPersistence` port so the policy is testable against an in-memory
+    store. The same seam is what plan §25 asks for in "save/load persistence
+    using a testable persistence adapter".
 
 ## Known gaps at this milestone
 
 - Only 2 NPC fixtures exist (Maria, David); the target is ~10.
-- Nothing writes memories yet: there is no structured extraction step, so NPC
-  continuity across sessions is not yet demonstrable. This is Milestone 7.
-- Relationship state is derived per conversation from defaults and never
-  persisted or evolved.
-- No developer inspector, no simulation controls, no inference metrics display.
+- No developer inspector: the memory proposal panel shows formation decisions,
+  but there is no NPC state view, context inspector, simulation controls, or
+  inference metrics display.
 - Retrieval has no relevance floor, so low-scoring memories still reach the
   prompt; the plan's memory-selectivity evaluation would not yet pass.
 - No end-to-end test suite; `playwright.config.ts` points at a `tests/e2e/`
@@ -188,3 +210,5 @@ Recorded per the instruction in the plan to document deviations as they arise.
 - Player collision is a bounding box only; the player walks through buildings.
 - `Math.random()` is used for NPC mesh colours, so appearance is not reproducible
   from a seed (the plan calls for a fixed world seed).
+- The world clock reports time of day only; there is no day counter, so neither the
+  status panel nor a prompt can say how many days have passed.

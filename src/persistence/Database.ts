@@ -44,6 +44,10 @@ export class Database {
     await this.db.put('memories', memory);
   }
 
+  public async deleteMemory(id: string) {
+    await this.db.delete('memories', id);
+  }
+
   public async getMemoriesForNpc(npcId: string): Promise<Memory[]> {
     return this.db.getAllFromIndex('memories', 'by-npc', npcId);
   }
