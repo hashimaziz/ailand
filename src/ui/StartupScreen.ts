@@ -1,4 +1,5 @@
 import { MODEL_CONFIGS, getModelConfig, dtypeNote, resolveModelConfig } from '../ai/ModelConfig';
+import { LauncherStatus } from '../ai/llamaLauncher';
 import { CapabilityReport, formatBytes, gpuBudgetWarnings } from '../ai/ModelCapabilities';
 import { ProgressEvent } from '../ai/LanguageModel';
 import {
@@ -329,6 +330,40 @@ export class StartupScreen {
       if (token !== this.probeToken) return;
       this.setStatus(available ? 'up' : 'down');
     }, 350);
+  }
+
+  /**
+   * Switch to a loading view worded for a server launch rather than a download.
+   *
+   * Same phase as the model download, different story: there is nothing to fetch
+   * here, the server is being started.
+   */
+  public showServerStart(): void {
+    this.showLoading('Starting the llama.cpp server…');
+  }
+
+  public updateServerStatus(status: LauncherStatus): void {
+    const detail = status.log.at(-1);
+    switch (status.state) {
+      case 'starting':
+        this.statusEl.textContent = detail
+          ? `Starting the llama.cpp server… ${detail}`
+          : 'Starting the llama.cpp server…';
+        this.setProgress(null);
+        break;
+      case 'ready':
+        this.statusEl.textContent = 'Server ready. Connecting…';
+        this.setProgress(null);
+        break;
+      case 'error':
+        this.statusEl.textContent = status.message ?? 'The llama.cpp server failed to start.';
+        this.setProgress(null);
+        break;
+      default:
+        this.statusEl.textContent = 'Waiting for the llama.cpp server…';
+        this.setProgress(null);
+        break;
+    }
   }
 
   /** Switch from the settings form to the download/progress view. */

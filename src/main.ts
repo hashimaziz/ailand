@@ -6,6 +6,7 @@ import { createLanguageModel } from './ai/createLanguageModel';
 import { detectCapabilities } from './ai/ModelCapabilities';
 import { describeModelLoadError } from './ai/ModelErrors';
 import { isLlamaServerAvailable } from './ai/createLanguageModel';
+import { LlamaLauncher } from './ai/llamaLauncher';
 import {
   AppConfig,
   configFromSearch,
@@ -33,11 +34,21 @@ function requireContainer(): HTMLElement {
  * left the player stuck on "Loading AI" with no progress and no way out.
  */
 async function loadModelAndStart(container: HTMLElement, config: AppConfig, screen: StartupScreen | null) {
+  const usingServer = config.runtime === 'llamaServer';
   screen?.showLoading(
     config.aiSource === 'mock'
       ? 'Starting the mock model…'
-      : 'Preparing the language model…',
+      : usingServer
+        ? 'Starting the llama.cpp server…'
+        : 'Preparing the language model…',
   );
+
+  // Launch the local runtime before anything else, so the world only appears once
+  // the model can actually answer.
+  if (usingServer) {
+    const outcome = await ensureLlamaServer(config, screen);
+    if (outcome === 'failed') return;
+  }
 
   const model = new DeferredLanguageModel(async () => {
     const { model } = await createLanguageModel();
@@ -64,6 +75,46 @@ async function loadModelAndStart(container: HTMLElement, config: AppConfig, scre
   const app = new App(container, model, config);
   await app.initialize();
   app.start();
+}
+
+/**
+ * Make sure a llama.cpp server is listening, launching one if the dev server
+ * supports it. Returns 'failed' when nothing is running and nothing could be
+ * started, so the caller stops rather than loading a world that cannot talk.
+ */
+async function ensureLlamaServer(
+  config: AppConfig,
+  screen: StartupScreen | null,
+): Promise<'ready' | 'unsupported' | 'failed'> {
+  const launcher = new LlamaLauncher();
+
+  screen?.showServerStart();
+
+  const status = await launcher.ensureRunning(config.llamaServerUrl, {}, (update) => {
+    screen?.updateServerStatus(update);
+  });
+
+  if (status?.state === 'ready') return 'ready';
+
+  if (status === null) {
+    // No launcher API: assume the user is running a server themselves.
+    const available = await isLlamaServerAvailable(config.llamaServerUrl);
+    if (available) return 'unsupported';
+    screen?.showLoadingError(
+      `No llama.cpp server answered at ${config.llamaServerUrl}, and this build cannot start one.\n\n` +
+        'Run `npm run dev` (which can manage the server for you), or start one yourself:\n' +
+        '  llama-server -m model.gguf --port 8080 -ngl 0\n\n' +
+        'Then press Try again, or use the mock model to keep playing.',
+    );
+    return 'failed';
+  }
+
+  screen?.showLoadingError(
+    `${status.message ?? 'The llama.cpp server failed to start.'}\n\n` +
+      'Check that llama.cpp is installed and on PATH, and that a GGUF model was found.\n\n' +
+      'Press Try again, or use the mock model to keep playing.',
+  );
+  return 'failed';
 }
 
 async function main(): Promise<void> {

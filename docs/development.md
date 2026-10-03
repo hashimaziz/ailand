@@ -22,6 +22,8 @@ type-checks before bundling, so a type error fails the build rather than shippin
 | `npx vitest run` | Vitest once, for CI-style checks |
 | `npm run test:e2e` | Playwright (no specs exist yet) |
 
+Model weights live in `models/` and are gitignored. Never commit a `.gguf`.
+
 ## The dev server and port 5173
 
 `npm run dev` uses `strictPort`, so if something is already on 5173 it fails with
@@ -73,16 +75,36 @@ runs reuse it.
 
 ### The local llama.cpp runtime
 
-Optional, and it is where the good models live. Start a server first:
+Optional, and it is where the good models live. **With `npm run dev` you do not
+need to start a server yourself.** Put a GGUF file in `models/` (or set
+`AILAND_LLAMA_MODEL`), choose **Local llama.cpp server** on the startup screen,
+and press Start — the dev server launches `llama-server`, the loading view narrates
+the startup from the server's log, and the world loads once the model is ready. The
+server is shut down when the dev server exits.
+
+To manage it by hand instead:
 
 ```bash
 llama-server -m ~/path/to/model.gguf --port 8080 --host 127.0.0.1 -c 4096 -ngl 0
 ```
 
-`-ngl 0` keeps it on the CPU. Then choose **Local llama.cpp server** on the
-startup screen, which probes the server as soon as you select it and reports
-`checking…` / `connected` / `not responding`. You can start the server after the
-page has loaded and re-select the option (or edit the URL) to re-check. Any
+The screen still works either way: selecting the option probes the server and
+reports `checking…` / `connected` / `not responding`, and re-selecting (or editing
+the URL) re-checks. Starting a server after the page has loaded and re-selecting
+is a supported flow.
+
+Configuration:
+
+| Variable | Purpose |
+| --- | --- |
+| `AILAND_LLAMA_MODEL` | Path to a GGUF file, instead of scanning `models/` |
+| `AILAND_LLAMA_MODELS_DIR` | Directory to scan for `.gguf` (default `models`) |
+| `AILAND_LLAMA_BIN` | Path to the binary, if not on PATH as `llama-server` |
+| `AILAND_LLAMA_NGL` | GPU layers; `0` (default) keeps it on the CPU |
+
+The launcher API only exists under `npm run dev` / `npm run preview`. In a static
+build the app cannot start a server and says so, falling back to expecting one to
+be running already. Any
 OpenAI-compatible server works — `node-llama-cpp` exposes one too.
 
 Good small instruct models in GGUF, verified present on Hugging Face:
@@ -166,6 +188,7 @@ tests/unit/ThinkingFilter.test.ts    reasoning-strip stream filter, incl. split 
 tests/unit/ModelBenchmark.test.ts    quality scorer, fixtures, model candidates
 tests/unit/StartupScreen.test.ts      config resolution, startup screen, progress
 tests/unit/LlamaServer.test.ts        SSE decoding at any chunk size, runtime config
+tests/unit/LlamaLauncher.test.ts      server launch, readiness polling, cancellation
 tests/unit/InteractionController.test.ts  horizontal distance/cone geometry
 ```
 

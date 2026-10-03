@@ -47,9 +47,12 @@ initialised *before* the world loads — with byte-level progress, so a slow
 download is visibly making progress rather than looking frozen.
 
 **Model runtime** is also a choice. *In this browser* needs no setup. *Local
-llama.cpp server* uses a `llama-server` running on your machine, which lifts the
-GPU-memory ceiling, allows a 1.5B–3B model instead of 0.6B, and supports
-schema-constrained decoding so memory extraction is reliable. See
+llama.cpp server* lifts the GPU-memory ceiling, allows a 1.5B–3B model instead of
+0.6B, and supports schema-constrained decoding so memory extraction is reliable.
+
+Under `npm run dev` the app **starts and stops the server for you**: drop a GGUF
+file in `models/`, pick the option, press Start. It reports progress while the
+server boots and only loads the world once the model can answer. See
 [`docs/development.md`](docs/development.md#the-local-llamacpp-runtime).
 
 **Inference** and **Rendering** are separate because GPU memory is the scarce

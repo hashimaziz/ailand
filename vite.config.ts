@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
+import { llamaServerPlugin } from './vite/llamaServerPlugin';
 
 export default defineConfig({
+  plugins: [llamaServerPlugin()],
   server: {
     port: 5173,
     host: true,

@@ -157,6 +157,19 @@ The local runtime is an **upgrade, not a requirement**. If no server answers,
 the startup screen says so and the browser runtime is used, so the project still
 runs with no setup.
 
+**The dev server launches it.** A page cannot spawn a process, so
+`vite/llamaServerPlugin.ts` exposes a small HTTP API (`/__llama/status|start|stop`)
+in the Node process that serves the app. Selecting the runtime starts the server;
+the loading phase then narrates the launch from the server's own log lines
+instead of showing a download, and the world only loads once the model can
+actually answer. The plugin owns the process: it is killed when the dev server
+closes, so nothing is orphaned. `models/` (or `AILAND_LLAMA_MODEL`) supplies the
+GGUF file, and weights are gitignored.
+
+Where there is no Node process — a static build — the API is absent, the launcher
+reports itself unsupported, and the app falls back to expecting an already-running
+server. That path is honest about itself rather than pretending to manage one.
+
 Server availability is **probed when the option is selected**, not once at page
 load. The normal workflow is opening the app, starting the server, then choosing
 the option — a single probe at load would still claim the server was missing. The
@@ -393,7 +406,11 @@ Recorded per the instruction in the plan to document deviations as they arise.
     token limit mid-object returned nothing at all, so an NPC silently forgot the
     conversation. The parser now closes what is open, and drops a value cut
     mid-word rather than storing a fragment.
-18. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
+18. **A browser cannot start a process.** Making the local runtime self-launching
+    required a Node-side endpoint rather than anything in `src/`. It is dev- and
+    preview-only by construction, so the static build still has no way to launch
+    anything — stated in the UI rather than hidden.
+19. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
     flex containers, so setting `.hidden = true` had no effect and both phases
     rendered at once. Fixed with a `[hidden] { display: none !important }` reset.
     Worth remembering for any future phase-based UI.

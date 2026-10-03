@@ -9,6 +9,10 @@ lerna-debug.log*
 
 node_modules
 dist
+
+# Local GGUF weights — never commit model files
+models/
+*.gguf
 dist-ssr
 *.local
 
