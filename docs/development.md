@@ -39,6 +39,12 @@ The default model is `onnx-community/Qwen3-0.6B-ONNX` at `q4f16` on WebGPU; see
 hundred megabytes on first real-model run. Transformers.js caches it in the
 browser, so subsequent runs reuse it.
 
+Reasoning is disabled for dialogue (`enableThinking: false`), and `ThinkingFilter`
+strips any `<think>` block from the stream regardless. If you swap in a
+reasoning model and see empty or truncated replies, check that
+`ModelConfig.enableThinking` is still `false` — see
+[`architecture.md`](./architecture.md#reasoning-is-not-dialogue).
+
 The application stays interactive while the model loads — the render loop and
 player movement do not wait on it. Opening a conversation before the model is
 ready shows a loading state in the dialogue panel.
@@ -68,6 +74,7 @@ tests/unit/MemoryValidator.test.ts   candidate normalization and authority rules
 tests/unit/MemoryFormation.test.ts   extraction prompt and tolerant JSON parsing
 tests/unit/MemoryProcessor.test.ts   accept/reject/merge/supersede/prune policy
 tests/unit/Relationship.test.ts      relationship defaults, clamping, bounded deltas
+tests/unit/ThinkingFilter.test.ts    reasoning-strip stream filter, incl. split tags
 ```
 
 `MemoryProcessor` depends on a narrow `MemoryPersistence` port rather than

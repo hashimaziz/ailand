@@ -63,6 +63,31 @@ emits `completed` with the partial text already streamed, so a cancelled reply
 still lands in the transcript instead of leaving an orphaned bubble; the pending
 `generate()` promise is always settled.
 
+### Reasoning is not dialogue
+
+Reasoning models emit chain-of-thought as ordinary generated tokens. Left alone,
+that text is both shown to the player and charged against `max_new_tokens` — the
+budget an NPC's one-to-three-sentence reply is supposed to fit inside, so a
+reasoning preamble can consume the whole allowance and truncate the actual line.
+
+Two defences, in order of importance:
+
+1. **Turn thinking off at the source.** `ModelConfig.enableThinking` is forwarded
+   to the chat template by the worker. It is passed as
+   `tokenizer_encode_kwargs: { enable_thinking }`, because that is the option the
+   Transformers.js text-generation pipeline spreads into the chat template's
+   render context (`chat_template_kwargs` is *not* a pipeline option and would be
+   forwarded to `generate()` instead). With it off, Qwen3 emits no reasoning
+   prefix and no thinking tokens are generated at all.
+2. **Filter the stream anyway.** `ThinkingFilter` strips `<think>…</think>`
+   blocks from every streamed chunk, including tags split across chunk boundaries
+   and unterminated blocks that run into the token limit. Only visible text is
+   streamed, accumulated into `fullText`, and counted in
+   `GenerationUsage.completionTokens`, so throughput metrics describe dialogue.
+
+If a generation yields nothing but reasoning, the worker reports an explicit error
+rather than leaving an empty reply.
+
 `createLanguageModel` selects an implementation:
 
 | Condition | Result |
@@ -177,11 +202,16 @@ Recorded per the instruction in the plan to document deviations as they arise.
 6. **Headless Chromium refuses pointer lock.** Relevant to the e2e suite: browser
    tests must either stub `pointerLockElement` or drive the game through a
    non-pointer-locked entry point.
-7. **`enableThinking` is configured but not yet forwarded to the model.**
-   `ModelConfig.enableThinking` is `false` for both candidates, but the worker
-   does not pass `enable_thinking` through to the Qwen3 chat template. Until it
-   does, Qwen3 may emit reasoning tokens that are billed and streamed as dialogue.
-   This is a real latency and quality risk for the default model.
+7. **`enableThinking` was configured but never reached the model.**
+   `ModelConfig.enableThinking` existed from Milestone 5 but the worker did not
+   forward it, so Qwen3 ran in its default thinking mode and streamed reasoning
+   into the dialogue panel while spending the reply's token budget. Two things
+   were needed, not one: forwarding the flag via `tokenizer_encode_kwargs` (see
+   [Reasoning is not dialogue](#reasoning-is-not-dialogue)) to stop the tokens
+   being generated, and a streaming filter to stop any that still appear. The
+   filter's partial-tag handling is the subtle part — a closing tag routinely
+   straddles a chunk boundary, so the discarded region has to retain enough of a
+   tail to recognise the close.
 8. **Memory formation is a second model round-trip.** Extracting structured
    memories after a conversation doubles the generation work per conversation. It
    runs after the panel closes, in the background, and only for conversations that

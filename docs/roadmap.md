@@ -50,9 +50,6 @@ way to find out why a reply felt wrong.
 
 Deferred, and why:
 
-- **Forwarding `enable_thinking` to the Qwen3 chat template** — the default
-  model may be emitting reasoning tokens as dialogue. Latency and quality, and it
-  belongs with the next AI runtime change.
 - **End-to-end tests** — Milestone 9. Headless Chromium blocks pointer lock, so
   the suite needs a deliberate entry point rather than a workaround bolted on now.
 - **The remaining 8 NPC fixtures** — §17 calls for ~10 with cross-NPC

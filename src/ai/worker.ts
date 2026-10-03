@@ -9,11 +9,13 @@ import type {
   WorkerGenerateMessage,
 } from './WorkerProtocol';
 import type { ModelConfig } from './LanguageModel';
+import { ThinkingFilter } from './ThinkingFilter';
 
 // We dynamically import @huggingface/transformers so the worker can be
 // bundled by Vite as a module worker without pulling the lib into main.
 let pipeline: any = null;
 let generator: any = null;
+let activeConfig: ModelConfig | null = null;
 
 
 // Track active generation for cancellation
@@ -25,6 +27,7 @@ function post(msg: WorkerOutMessage) {
 
 async function handleInit(config: ModelConfig) {
   const startTime = performance.now();
+  activeConfig = config;
   try {
     post({ type: 'progress', phase: 'download', message: `Downloading ${config.id}...` });
 
@@ -84,13 +87,18 @@ async function handleGenerate(msg: WorkerGenerateMessage) {
   let fullText = '';
 
   try {
-    post({ type: 'token', requestId: msg.requestId, text: '' }); // signal started
-
     // Build generation kwargs
     const genKwargs: any = {
       max_new_tokens: msg.generation.maxNewTokens,
       do_sample: msg.generation.doSample,
       return_full_text: false,
+      // `tokenizer_encode_kwargs` is spread into the chat template's render
+      // context by the text-generation pipeline, which is how `enable_thinking`
+      // reaches templates such as Qwen3's. With it off, the model never emits a
+      // reasoning prefix at all, so thinking does not consume max_new_tokens.
+      tokenizer_encode_kwargs: {
+        enable_thinking: activeConfig?.enableThinking ?? false,
+      },
     };
 
     if (msg.generation.doSample) {
@@ -99,6 +107,19 @@ async function handleGenerate(msg: WorkerGenerateMessage) {
       genKwargs.top_k = msg.generation.topK;
     }
 
+    // Reasoning blocks are stripped from the stream: they must never reach the
+    // player, the transcript, or the memory system.
+    const thinking = new ThinkingFilter();
+    const emit = (text: string) => {
+      if (!text) return;
+      if (firstTokenTime === null) {
+        firstTokenTime = performance.now();
+      }
+      tokenCount++;
+      fullText += text;
+      post({ type: 'token', requestId: msg.requestId, text });
+    };
+
     // Use a callback streamer to emit tokens
     const transformers = await import('@huggingface/transformers');
     const streamer = new transformers.TextStreamer(generator.tokenizer, {
@@ -106,12 +127,7 @@ async function handleGenerate(msg: WorkerGenerateMessage) {
       skip_special_tokens: true,
       callback_function: (text: string) => {
         if (cancelledRequests.has(msg.requestId)) return;
-        if (firstTokenTime === null) {
-          firstTokenTime = performance.now();
-        }
-        tokenCount++;
-        fullText += text;
-        post({ type: 'token', requestId: msg.requestId, text });
+        emit(thinking.push(text));
       },
     });
 
@@ -119,10 +135,21 @@ async function handleGenerate(msg: WorkerGenerateMessage) {
 
     // Run generation
     await generator(msg.messages, genKwargs);
+    emit(thinking.flush());
 
     if (cancelledRequests.has(msg.requestId)) {
       cancelledRequests.delete(msg.requestId);
       return; // silently drop cancelled requests
+    }
+
+    if (!fullText.trim()) {
+      post({
+        type: 'error',
+        requestId: msg.requestId,
+        message:
+          'The model produced no dialogue (its entire output was reasoning, which is filtered out).',
+      });
+      return;
     }
 
     const totalMs = performance.now() - startTime;
@@ -134,6 +161,7 @@ async function handleGenerate(msg: WorkerGenerateMessage) {
       fullText,
       usage: {
         promptTokens: 0, // not easily available without tokenizer counting
+        // Counted after filtering, so this reflects dialogue tokens only.
         completionTokens: tokenCount,
         totalTokens: tokenCount,
         firstTokenMs,
