@@ -124,12 +124,16 @@ describe('PromptBuilder', () => {
     expect(system).toContain('introduce yourself once');
   });
 
-  it('includes the NPC voice examples verbatim', () => {
+  it('does not put the voice example lines in the prompt', () => {
+    // Measured: with them the model quoted them back verbatim in half its
+    // replies. The traits and speech style carry the voice on their own.
     const system = promptBuilder
       .build(sampleContext(), [], 'Hello', getModelConfig())
       .messages[0].content;
 
-    expect(system).toContain('Morning! The usual?');
+    expect(system).not.toContain('Morning! The usual?');
+    expect(system).toContain('friendly');
+    expect(system).toContain('warm');
   });
 
   it('renders occupations as prose rather than debug slugs', () => {

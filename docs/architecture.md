@@ -261,7 +261,6 @@ reliably than they obey negations, so the prompt now:
 - states the scene concretely (a person standing face to face, not "a game"),
 - names the register to avoid, so the prohibition is concrete rather than implied,
 - tells the model to greet **once** and then continue,
-- includes two lines of the character's own voice from `PersonalityProfile.voiceExamples`,
 - includes a worked two-turn exchange, deliberately about a character who is *not*
   in the world so it cannot contaminate what the model believes about real NPCs,
 - converts the relationship numbers into guidance it can act on
@@ -270,6 +269,15 @@ reliably than they obey negations, so the prompt now:
 
 Occupations are rendered as prose via `OCCUPATION_LABELS` rather than as debug
 slugs like `barista`.
+
+**Example dialogue lines made the model worse, not better.** The prompt originally
+injected `PersonalityProfile.voiceExamples` as concrete lines to imitate. Measured
+A/B against Qwen3.5-3B on four questions: with the lines, the model quoted them
+back verbatim in half of its replies ("Morning! The usual? You look like a long
+one."); without them, it quoted nothing and read more naturally ("Hey there! How's
+your shift been so far?"). Telling it not to copy did not help — the field is kept
+for the inspector, but the lines are not put in the prompt. The traits and
+speech-style descriptors already carry the voice.
 
 ## Memory
 

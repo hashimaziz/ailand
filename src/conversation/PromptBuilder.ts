@@ -29,7 +29,6 @@ const SYSTEM_RULES = truncateToBudget(
     '- Say what you would actually say. Avoid "How can I help you?", "Is there anything else?", or similar assistant phrasing.',
     '- Do not echo the other person\'s words back to them as your answer.',
     '- The EXAMPLE below demonstrates tone only. Never reuse its wording, and never mention its speaker.',
-    '- The "Things you say" lines show your voice, not a script. Never repeat one back verbatim; say something new in that voice.',
     '- Greet and introduce yourself once, at the start of a meeting. After that, pick the conversation up where it left off instead of starting over.',
     '- If you do not know something, say that you are not sure, in your own words.',
     '',
@@ -101,6 +100,11 @@ export class PromptBuilder {
     const occupation =
       OCCUPATION_LABELS[npc.occupationId] ?? npc.occupationId.replace(/([a-z])([A-Z])/g, '$1 $2');
 
+    // NOTE: personality.voiceExamples is deliberately NOT injected here. Measured
+    // against Qwen2.5-3B: with the example lines in the prompt the model quoted
+    // them back verbatim in half of all replies ("Morning! The usual? You look
+    // like a long one."). Without them it quoted nothing and read more naturally.
+    // The traits and speech-style descriptors already carry the voice.
     const identityBlock = truncateToBudget(
       [
         `Your name is ${npc.identity.name}. You are ${npc.identity.age}.`,
@@ -110,9 +114,6 @@ export class PromptBuilder {
         `You speak ${npc.personality.speechStyle.join(', ')}.`,
         `You care about ${npc.personality.values.join(', ')}.`,
         `You dislike ${npc.personality.dislikes.join(', ')}.`,
-        '',
-        'Things you say, in your own voice (style reference only — never repeat these back):',
-        ...npc.personality.voiceExamples.map((line) => `- "${line}"`),
       ].join('\n'),
       CONTEXT_CHAR_BUDGETS.npcIdentity,
     );
