@@ -3,6 +3,7 @@ import { LlamaStreamDecoder } from '../../src/ai/LlamaServerLanguageModel';
 import {
   DEFAULT_APP_CONFIG,
   configFromSearch,
+  getConfig,
   setConfig,
   resetConfig,
 } from '../../src/config/appConfig';
@@ -120,6 +121,20 @@ describe('runtime configuration', () => {
     expect(configFromSearch('?serverUrl=http://localhost:9000')).toEqual({
       llamaServerUrl: 'http://localhost:9000',
     });
+  });
+
+  it('accepts a llama model choice from the URL', () => {
+    expect(configFromSearch('?llamaModel=b.gguf')).toEqual({ llamaModel: 'b.gguf' });
+  });
+
+  it('defaults the llama model to empty so the server decides', () => {
+    expect(DEFAULT_APP_CONFIG.llamaModel).toBe('');
+  });
+
+  it('keeps the chosen model when other fields change', () => {
+    setConfig({ llamaModel: 'b.gguf' });
+    setConfig({ runBenchmark: true });
+    expect(getConfig().llamaModel).toBe('b.gguf');
   });
 
   it('ignores an unknown runtime', () => {

@@ -42,6 +42,8 @@ export interface AppConfig {
   aiSource: AiSource;
   runtime: ModelRuntime;
   llamaServerUrl: string;
+  /** Basename of the GGUF to load; empty means "let the server decide". */
+  llamaModel: string;
   inferDevice: InferDevice;
   renderBackend: RenderBackend;
   runBenchmark: boolean;
@@ -52,6 +54,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   aiSource: 'auto',
   runtime: 'browser',
   llamaServerUrl: DEFAULT_LLAMA_SERVER_URL,
+  llamaModel: '',
   inferDevice: 'auto',
   renderBackend: 'auto',
   runBenchmark: false,
@@ -78,6 +81,7 @@ export function setConfig(next: Partial<AppConfig>): AppConfig {
     aiSource: next.aiSource ?? current.aiSource,
     runtime: next.runtime ?? current.runtime,
     llamaServerUrl: next.llamaServerUrl ?? current.llamaServerUrl,
+    llamaModel: next.llamaModel ?? current.llamaModel,
     inferDevice: next.inferDevice ?? current.inferDevice,
     renderBackend: next.renderBackend ?? current.renderBackend,
     runBenchmark: next.runBenchmark ?? current.runBenchmark,
@@ -113,6 +117,7 @@ export function configFromSearch(search: string): Partial<AppConfig> {
       ? { runtime: params.get('runtime') === 'llama' ? ('llamaServer' as const) : ('browser' as const) }
       : {}),
     ...(params.get('serverUrl') ? { llamaServerUrl: params.get('serverUrl') as string } : {}),
+    ...(params.get('llamaModel') ? { llamaModel: params.get('llamaModel') as string } : {}),
     ...(device === 'wasm' || device === 'webgpu' ? { inferDevice: device } : {}),
     ...(params.get('webgl') === '1' ? { renderBackend: 'webgl2' } : {}),
     ...(params.get('bench') === '1' ? { runBenchmark: true } : {}),

@@ -90,9 +90,11 @@ async function ensureLlamaServer(
 
   screen?.showServerStart();
 
-  const status = await launcher.ensureRunning(config.llamaServerUrl, {}, (update) => {
-    screen?.updateServerStatus(update);
-  });
+  const status = await launcher.ensureRunning(
+    config.llamaServerUrl,
+    { model: config.llamaModel || undefined },
+    (update) => screen?.updateServerStatus(update),
+  );
 
   if (status?.state === 'ready') return 'ready';
 
@@ -144,8 +146,17 @@ async function main(): Promise<void> {
   screen.setCapabilities(capabilities);
 
   // Probe once so the menu can say whether the local server is actually there,
-  // rather than letting the player find out after pressing Start.
-  screen.setLlamaServerStatus(await isLlamaServerAvailable(initial.llamaServerUrl));
+  // rather than letting the player find out after pressing Start. When the dev
+  // server can manage one it also reports which models are available.
+  const launcher = new LlamaLauncher();
+  const [reachable, launcherStatus] = await Promise.all([
+    isLlamaServerAvailable(initial.llamaServerUrl),
+    launcher.status(),
+  ]);
+  screen.setLlamaServerStatus(reachable);
+  if (launcherStatus?.availableModels?.length) {
+    screen.setAvailableLlamaModels(launcherStatus.availableModels, initial.llamaModel);
+  }
 }
 
 main().catch((err) => {

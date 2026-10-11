@@ -120,6 +120,37 @@ describe('MemoryValidator.validateProposal', () => {
     expect(reasons.join(' ')).toContain('below threshold');
   });
 
+  it('rejects memories written in the NPC\'s own first person', () => {
+    // Observed with Qwen2.5-3B: extraction produced "I just moved into the
+    // apartments" — the player's event in the NPC's voice. Read back as a memory
+    // it teaches the NPC it was the one who moved in.
+    for (const content of [
+      "I'm new to the area.",
+      'I just moved into the apartments above the bakery.',
+      'My name is Maria.',
+      'I work as a barista at the West Coffee Shop.',
+    ]) {
+      const reasons = validator.validateProposal(candidate({ content, type: 'belief' }));
+      expect(reasons.join(' '), content).toContain('first person');
+    }
+  });
+
+  it('accepts the same memory written in the third person', () => {
+    expect(
+      validator.validateProposal(
+        candidate({ content: 'Alex just moved into the apartments above the bakery.' }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('accepts third-person memories that merely mention a pronoun later', () => {
+    expect(
+      validator.validateProposal(
+        candidate({ content: 'Alex said that he misses his old flat in the city.' }),
+      ),
+    ).toEqual([]);
+  });
+
   it('drops placeholder content', () => {
     const reasons = validator.validateProposal(candidate({ content: 'n/a' }));
     expect(reasons.join(' ')).toContain('placeholder');

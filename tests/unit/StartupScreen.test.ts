@@ -234,6 +234,43 @@ describe('StartupScreen', () => {
     expect(field<HTMLButtonElement>('.startup__use-mock').hidden).toBe(true);
   });
 
+  it('offers every model the dev server can see', () => {
+    screen.setAvailableLlamaModels([
+      'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf',
+      'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+    ]);
+    const options = [
+      ...screen.root.querySelectorAll<HTMLOptionElement>('.startup__llama-model option'),
+    ];
+    expect(options.map((o) => o.value)).toEqual([
+      'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf',
+      'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+    ]);
+    expect(screen.root.querySelector<HTMLSelectElement>('.startup__llama-model')!.disabled).toBe(false);
+
+  });
+
+  it('keeps the chosen model across a refresh of the list', () => {
+    screen.setAvailableLlamaModels(['a.gguf', 'b.gguf']);
+    screen.root.querySelector<HTMLSelectElement>('.startup__llama-model')!.value = 'b.gguf';
+    screen.setAvailableLlamaModels(['a.gguf', 'b.gguf']);
+    expect(screen.root.querySelector<HTMLSelectElement>('.startup__llama-model')!.value).toBe('b.gguf');
+  });
+
+  it('says so plainly when no models are installed', () => {
+    screen.setAvailableLlamaModels([]);
+    const select = screen.root.querySelector<HTMLSelectElement>('.startup__llama-model')!;
+    expect(select.disabled).toBe(true);
+    expect(select.options[0].textContent).toContain('No .gguf models found');
+
+  });
+
+  it('includes the selected local model in the reported config', () => {
+    screen.setAvailableLlamaModels(['a.gguf', 'b.gguf']);
+    screen.root.querySelector<HTMLSelectElement>('.startup__llama-model')!.value = 'b.gguf';
+    expect(screen.currentConfig().llamaModel).toBe('b.gguf');
+  });
+
   it('warns that a forced local load will probably fail without WebGPU', () => {
     screen.setCapabilities({
       webgpu: false,

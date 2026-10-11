@@ -148,6 +148,12 @@ Two asymmetries and two filters were added after observing real failures:
 - **Personality restatements are not memories.** Extraction sometimes produced
   "Maria is friendly and observant", which is already in every prompt. Candidates
   made almost entirely of the NPC's own vocabulary are rejected.
+- **Memories must be in the third person.** Qwen2.5-3B produced "I just moved
+  into the apartments above the bakery" — the *player's* event, in the NPC's
+  voice. Stored as a memory it is actively harmful: read back as "this happened to
+  me", the NPC concludes it was the one who moved in, and starts inventing details
+  ("a small apartment by the park"). Candidates beginning with a first-person
+  subject are rejected, and the extraction prompt asks for third person explicitly.
 
 ## Retrieval
 

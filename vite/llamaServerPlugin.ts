@@ -109,7 +109,7 @@ export function llamaServerPlugin(options: LlamaPluginOptions = {}): Plugin {
     }
 
     const port = payload.port ?? state.port ?? DEFAULT_PORT;
-    const model = payload.model ?? findModel();
+    const model = resolveModel(payload.model as string | undefined);
     const contextSize = payload.contextSize ?? DEFAULT_CONTEXT;
 
     if (!model) {
@@ -118,7 +118,7 @@ export function llamaServerPlugin(options: LlamaPluginOptions = {}): Plugin {
         port,
         log: state.log,
         message:
-          `No GGUF model found. Set AILAND_LLAMA_MODEL, or put a .gguf file in ${modelsDir}/.`,
+          `No GGUF model found. Put an instruct .gguf file in ${modelsDir}/, or set AILAND_LLAMA_MODEL.`,
       };
       return state;
     }
@@ -184,12 +184,33 @@ export function llamaServerPlugin(options: LlamaPluginOptions = {}): Plugin {
     return state;
   };
 
-  const findModel = (): string | undefined => {
-    const fromEnv = process.env.AILAND_LLAMA_MODEL;
-    if (fromEnv) return resolve(fromEnv);
-    if (!existsSync(modelsDir)) return undefined;
-    const gguf = readdirSync(modelsDir).filter((f) => f.toLowerCase().endsWith('.gguf'));
-    return gguf.length > 0 ? join(modelsDir, gguf[0]) : undefined;
+  /**
+   * Every GGUF file available, sorted.
+   *
+   * `readdirSync` order is filesystem-dependent, so taking the first entry made
+   * the choice of model arbitrary once more than one was present. Sorting makes it
+   * predictable and keeps the default from changing between machines.
+   */
+  const findModels = (): string[] => {
+    if (!existsSync(modelsDir)) return [];
+    return readdirSync(modelsDir)
+      .filter((f) => f.toLowerCase().endsWith('.gguf'))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((f) => join(modelsDir, f));
+  };
+
+  /** Accept a basename or an absolute path. */
+  const resolveModel = (requested?: string): string | undefined => {
+    if (!requested) {
+      const fromEnv = process.env.AILAND_LLAMA_MODEL;
+      if (fromEnv) return resolve(fromEnv);
+      return findModels()[0];
+    }
+    if (existsSync(requested) && !requested.endsWith('/')) return resolve(requested);
+    const match = findModels().find(
+      (path) => path === requested || path.endsWith(`/${requested}`),
+    );
+    return match;
   };
 
   const handler = async (
@@ -205,12 +226,14 @@ export function llamaServerPlugin(options: LlamaPluginOptions = {}): Plugin {
     response.setHeader('Cache-Control', 'no-store');
 
     if (request.method === 'GET') {
+      const models = findModels();
       response.end(
         JSON.stringify({
           ...state,
           bin,
           modelsDir,
-          defaultModel: findModel() ?? null,
+          availableModels: models.map((path) => path.slice(path.lastIndexOf('/') + 1)),
+          defaultModel: resolveModel() ?? null,
         }),
       );
       return;

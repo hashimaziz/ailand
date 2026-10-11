@@ -101,12 +101,32 @@ Configuration:
 | `AILAND_LLAMA_MODEL` | Path to a GGUF file, instead of scanning `models/` |
 | `AILAND_LLAMA_MODELS_DIR` | Directory to scan for `.gguf` (default `models`) |
 | `AILAND_LLAMA_BIN` | Path to the binary, if not on PATH as `llama-server` |
-| `AILAND_LLAMA_NGL` | GPU layers; `0` (default) keeps it on the CPU |
+| `AILAND_LLAMA_NGL` | GPU layers; `0` (default) keeps it on the CPU, `99` uses Metal |
+
+The server handles **one request at a time** by default. Memory extraction runs
+after a conversation closes, in the background, so it can still be in flight when
+the player starts the next one; expect a short pause rather than a failure.
 
 The launcher API only exists under `npm run dev` / `npm run preview`. In a static
 build the app cannot start a server and says so, falling back to expecting one to
 be running already. Any
 OpenAI-compatible server works — `node-llama-cpp` exposes one too.
+
+Pick the model on the startup screen — the dev server lists every `.gguf` it finds
+in `models/`, sorted, and the selection is remembered. Choosing it explicitly
+matters: the file used to depend on filesystem order, and a 1.5B model behaves
+very differently from a 3B one.
+
+Measured on this machine (M4, llama.cpp 9580), for a 512-token prompt and 64
+generated tokens:
+
+| Model | `-ngl 0` (CPU) | `-ngl 99` (Metal) |
+| --- | --- | --- |
+| Qwen2.5-3B-Instruct Q4_K_M | 106 / **59 tok/s** | 901 / **94 tok/s** |
+
+CPU is usable for dialogue — a one-to-three-sentence reply is 30–60 tokens, so
+about a second. Metal is worth setting via `AILAND_LLAMA_NGL=99`, mostly because
+it cuts prompt processing roughly ninefold.
 
 Good small instruct models in GGUF, verified present on Hugging Face:
 `bartowski/Qwen2.5-3B-Instruct-GGUF` (Q4_K_M, 1840 MB),

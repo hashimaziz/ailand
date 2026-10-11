@@ -87,6 +87,7 @@ export class StartupScreen {
   private sourceSelect: HTMLSelectElement;
   private runtimeSelect: HTMLSelectElement;
   private serverUrlInput: HTMLInputElement;
+  private llamaModelSelect: HTMLSelectElement;
   private deviceSelect: HTMLSelectElement;
   private renderSelect: HTMLSelectElement;
   private warnEl: HTMLElement;
@@ -121,6 +122,11 @@ export class StartupScreen {
           <label class="startup__field startup__field--server">
             <span class="startup__label">llama.cpp server</span>
             <input type="text" class="startup__input startup__server-url" spellcheck="false" />
+          </label>
+
+          <label class="startup__field startup__field--server">
+            <span class="startup__label">Local model</span>
+            <select class="startup__select startup__llama-model"></select>
           </label>
 
           <label class="startup__field">
@@ -197,6 +203,7 @@ export class StartupScreen {
     this.sourceSelect = q<HTMLSelectElement>('.startup__source');
     this.runtimeSelect = q<HTMLSelectElement>('.startup__runtime');
     this.serverUrlInput = q<HTMLInputElement>('.startup__server-url');
+    this.llamaModelSelect = q<HTMLSelectElement>('.startup__llama-model');
     this.deviceSelect = q<HTMLSelectElement>('.startup__device');
     this.renderSelect = q<HTMLSelectElement>('.startup__render');
     this.warnEl = q('.startup__warnings');
@@ -218,6 +225,7 @@ export class StartupScreen {
     for (const el of [
       this.runtimeSelect,
       this.serverUrlInput,
+      this.llamaModelSelect,
       this.modelSelect,
       this.sourceSelect,
       this.deviceSelect,
@@ -276,6 +284,7 @@ export class StartupScreen {
       aiSource: this.sourceSelect.value as AiSource,
       runtime: this.runtimeSelect.value as ModelRuntime,
       llamaServerUrl: this.serverUrlInput.value.trim() || DEFAULT_LLAMA_SERVER_URL,
+      llamaModel: this.llamaModelSelect.value,
       inferDevice: this.deviceSelect.value as InferDevice,
       renderBackend: this.renderSelect.value as RenderBackend,
       runBenchmark: this.benchInput.checked,
@@ -295,6 +304,38 @@ export class StartupScreen {
   /** Record whether a local llama.cpp server answered, for the menu note. */
   public setLlamaServerStatus(available: boolean | null): void {
     this.setStatus(available ? 'up' : 'down');
+  }
+
+  /**
+   * Offer every GGUF the dev server can see.
+   *
+   * Choosing the model explicitly matters more than it looks: which file loads
+   * used to depend on filesystem order, and a 1.5B model behaves very differently
+   * from a 3B one. The list is what makes that a decision rather than a surprise.
+   */
+  public setAvailableLlamaModels(models: string[], selected?: string): void {
+    const current = selected ?? this.llamaModelSelect.value;
+    this.llamaModelSelect.innerHTML = '';
+
+    const add = (value: string, label: string) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      this.llamaModelSelect.appendChild(option);
+    };
+
+    if (models.length === 0) {
+      add('', 'No .gguf models found');
+      this.llamaModelSelect.disabled = true;
+    } else {
+      this.llamaModelSelect.disabled = false;
+      // Smallest first: a smaller model is the faster default when both are present.
+      for (const model of models) add(model, model);
+      if (current && models.includes(current)) {
+        this.llamaModelSelect.value = current;
+      }
+    }
+    this.renderNote();
   }
 
   private llamaServerStatus: 'idle' | 'checking' | 'up' | 'down' = 'idle';

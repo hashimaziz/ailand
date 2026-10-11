@@ -50,6 +50,17 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
+ * First-person subject, as produced by extraction when it slips into the NPC's
+ * own voice.
+ *
+ * "I just moved into the apartments" records the *player's* event in the NPC's
+ * voice. Stored as a memory it is actively harmful: read back as "this happened to
+ * me", the NPC concludes it was the one who moved in. Third person, always.
+ */
+const FIRST_PERSON_SUBJECT =
+  /^\s*(?:i|i'm|im|i've|ive|i'll|i'd|me|my|mine|myself|we|we're|our)\b/i;
+
+/**
  * Coerce untrusted model JSON into a well-formed candidate, collecting every
  * problem it had to repair. Nothing here throws: a malformed proposal becomes a
  * rejected proposal, never an exception that could corrupt a conversation.
@@ -225,6 +236,12 @@ export class MemoryValidator {
     const normalized = normalizeText(candidate.content);
     if (normalized.length < 8) {
       reasons.push('Content too short to be meaningful');
+    }
+
+    if (FIRST_PERSON_SUBJECT.test(candidate.content.trim())) {
+      reasons.push(
+        'written in the first person — describe the player and others in the third person',
+      );
     }
 
     return reasons;

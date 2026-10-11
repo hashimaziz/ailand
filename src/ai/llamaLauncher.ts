@@ -18,6 +18,8 @@ export interface LauncherStatus {
   bin?: string;
   modelsDir?: string;
   defaultModel?: string | null;
+  /** Basenames of every GGUF the dev server can see. */
+  availableModels?: string[];
 }
 
 export interface StartOptions {
