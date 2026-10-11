@@ -398,3 +398,13 @@ body, html {
   font-size: 0.8rem;
   white-space: pre-line;
 }
+
+.dialogue-panel__notice {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: #e3c27e;
+}
+
+.dialogue-panel__notice:empty {
+  display: none;
+}

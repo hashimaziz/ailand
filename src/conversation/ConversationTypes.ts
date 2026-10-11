@@ -20,7 +20,21 @@ export interface PlayerRelationshipSnapshot {
 export interface ConversationSession {
   npcId: string;
   startedAt: number;
+  /**
+   * The bounded window replayed into the prompt.
+   *
+   * Trimmed to `maxRecentTurns` so the prompt stays small, which is not the same
+   * thing as what happened.
+   */
   turns: DialogueTurn[];
+  /**
+   * Every turn of this conversation, never trimmed.
+   *
+   * Memory formation reads this. Trimming to the prompt window first meant a long
+   * conversation was distilled from only its last few exchanges, so whatever the
+   * player said at the start was never remembered.
+   */
+  transcript: DialogueTurn[];
 }
 
 export interface AssembledContext {

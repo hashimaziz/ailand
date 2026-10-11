@@ -1,6 +1,6 @@
 import { db } from '../persistence/Database';
 import { generateId } from '../utils/ids';
-import { MEMORY_CONFIG } from '../config/gameConfig';
+import { LOCATION_LABELS, MEMORY_CONFIG } from '../config/gameConfig';
 import { PlayerRelationshipSnapshot } from '../conversation/ConversationTypes';
 import { Npc } from '../npc/types';
 import { RelationshipChange, applyRelationshipDeltas } from '../npc/Relationship';
@@ -13,6 +13,57 @@ import {
 } from './MemoryTypes';
 import { MemoryValidator, normalizeText } from './MemoryValidator';
 import { Memory } from './types';
+
+const PRONOUNS = new Set(['i', 'im', 'me', 'my', 'mine', 'myself', 'we', 'our', 'us']);
+
+/**
+ * Is this "memory" just the NPC describing themselves?
+ *
+ * Observed in practice: the extraction produced
+ * "Maria is friendly and observant", which restates the personality already in
+ * every prompt. It is not a memory of anything, and storing it wastes retrieval
+ * budget and can crowd out a real one.
+ */
+export function isSelfDescription(candidate: MemoryCandidate, npc: Npc): boolean {
+  const words = normalizeText(candidate.content).split(' ').filter(Boolean);
+  if (words.length === 0) return false;
+
+  const own = new Set(
+    [
+      npc.identity.name,
+      ...npc.personality.traits,
+      ...npc.personality.speechStyle,
+      ...npc.personality.values,
+      ...npc.personality.dislikes,
+    ].map((w) => normalizeText(w)),
+  );
+
+  const contentWords = words.filter((w) => !PRONOUNS.has(w));
+  if (contentWords.length === 0) return false;
+
+  const overlap = contentWords.filter((w) => own.has(w)).length;
+  return overlap / contentWords.length >= 0.6;
+}
+
+/**
+ * Keep only location ids the world actually knows about.
+ *
+ * The extraction schema lets the model name a location, and it will happily
+ * invent one — "West Coffee Shop" is a label, not a location id. Storing that
+ * makes the memory's `locationId` match nothing forever, silently costing it the
+ * location-relevance signal on every future retrieval.
+ */
+export function resolveLocationId(
+  proposed: string | undefined,
+  fallback: string,
+): string {
+  if (!proposed) return fallback;
+  const key = proposed.trim().toLowerCase();
+  const match = Object.keys(LOCATION_LABELS).find(
+    (id) => id.toLowerCase() === key || LOCATION_LABELS[id].toLowerCase() === key,
+  );
+  return match ?? fallback;
+}
 
 /** Types whose currency a newer memory of the same subject can supersede. */
 const SUPERSEDABLE_TYPES = new Set(['episodic', 'belief', 'relationship']);
@@ -76,6 +127,9 @@ export class MemoryProcessor {
       const proposal: MemoryProposal = { candidate, decision: 'rejected', reasons: [] };
 
       proposal.reasons.push(...this.validator.validateProposal(candidate));
+      if (proposal.reasons.length === 0 && isSelfDescription(candidate, npc)) {
+        proposal.reasons.push('restates the NPC\'s own personality rather than remembering something');
+      }
       if (proposal.reasons.length > 0) {
         proposals.push(proposal);
         continue;
@@ -107,7 +161,7 @@ export class MemoryProcessor {
         confidence: candidate.confidence,
         source: candidate.source,
         entities: candidate.entities,
-        locationId: candidate.locationId ?? npc.state.locationId,
+        locationId: resolveLocationId(candidate.locationId, npc.state.locationId),
         createdAt: worldTime,
         lastAccessedAt: worldTime,
         supersedesId: superseded?.id,

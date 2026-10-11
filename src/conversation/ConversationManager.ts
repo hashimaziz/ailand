@@ -50,9 +50,15 @@ export class ConversationManager {
   private session: ConversationSession | null = null;
   private phase: ConversationPhase = 'idle';
   private activeRequestId: string | null = null;
-  private modelReady = false;
   private lastPrompt: BuiltPrompt | null = null;
   private memoryProcessor = new MemoryProcessor();
+  /**
+   * The session being closed, kept until an in-flight cancel has delivered its
+   * partial reply. Cancelling is asynchronous, so without this the partial answer
+   * arrived after `this.session` was cleared and was discarded.
+   */
+  private closingSession: ConversationSession | null = null;
+  private cancelSettled: Promise<void> = Promise.resolve();
 
   constructor(
     private languageModel: LanguageModel,
@@ -64,7 +70,18 @@ export class ConversationManager {
 
   public setLanguageModel(model: LanguageModel) {
     this.languageModel = model;
-    this.modelReady = model.isReady();
+  }
+
+  /**
+   * Readiness is read from the model, never cached.
+   *
+   * A private `modelReady` flag defaulted to false and was only set by
+   * `ensureModelReady()`, so a model that startup had already loaded — the llama
+   * path — still reported "not ready" and left the session parked in the loading
+   * phase, showing "Loading AI" to a player who could in fact talk.
+   */
+  private get modelReady(): boolean {
+    return this.languageModel.isReady();
   }
 
   public getPhase(): ConversationPhase {
@@ -86,14 +103,12 @@ export class ConversationManager {
 
   public async ensureModelReady(): Promise<boolean> {
     if (this.languageModel.isReady()) {
-      this.modelReady = true;
       this.setPhase('ready');
       return true;
     }
     this.setPhase('loading_model');
     try {
       await this.languageModel.initialize();
-      this.modelReady = true;
       this.setPhase('ready');
       return true;
     } catch (err) {
@@ -113,86 +128,105 @@ export class ConversationManager {
       npcId,
       startedAt: this.getWorldTime(),
       turns: [],
+      transcript: [],
     };
     this.setPhase(this.modelReady ? 'ready' : 'loading_model');
     return true;
   }
 
   public closeConversation(): void {
-    if (this.activeRequestId) {
-      void this.languageModel.cancel(this.activeRequestId);
-      this.activeRequestId = null;
-    }
     const finished = this.session;
     this.session = null;
+
+    if (this.activeRequestId) {
+      const requestId = this.activeRequestId;
+      this.activeRequestId = null;
+      this.closingSession = finished;
+      // Wait for the partial reply to be delivered before forming memories, so a
+      // half-written line is neither lost nor omitted from what gets distilled.
+      this.cancelSettled = this.languageModel
+        .cancel(requestId)
+        .catch(() => {})
+        .then(() => {
+          this.closingSession = null;
+        });
+    }
+
     this.setPhase(this.modelReady ? 'ready' : 'idle');
 
     if (finished) {
-      // Formation runs after the panel closes so the player is never held
-      // waiting on a second model round-trip.
+      // Formation runs after the panel closes so the player is never held waiting
+      // on a second model round-trip.
       void this.formMemories(finished);
     }
   }
 
   public async sendPlayerMessage(text: string): Promise<void> {
-    if (!this.session || !text.trim()) return;
+    // Hold the session for the whole call: closing the panel mid-await used to
+    // null this.session and throw on the next line.
+    const session = this.session;
+    if (!session || !text.trim()) return;
 
-    const npc = npcRegistry.get(this.session.npcId);
+    const npc = npcRegistry.get(session.npcId);
     if (!npc) {
       this.ui.onError('That person is no longer available.');
       return;
     }
 
-    if (!this.languageModel.isReady()) {
-      const ok = await this.ensureModelReady();
-      if (!ok) return;
-    }
-
-    const playerTurn: DialogueTurn = {
-      role: 'player',
-      content: text.trim(),
-      at: this.getWorldTime(),
-    };
-    this.session.turns.push(playerTurn);
-    this.trimRecentTurns();
-
-    const relationship = await this.loadRelationship(npc.id);
-
-    const context = await contextAssembler.assemble({
-      npc,
-      playerMessage: playerTurn.content,
-      worldTime: this.getWorldTime(),
-      formattedTime: this.getFormattedTime(),
-      relationship,
-    });
-
-    const recentForPrompt = this.session.turns.slice(0, -1);
-    const built = promptBuilder.build(
-      context,
-      recentForPrompt,
-      playerTurn.content,
-      this.modelConfig,
-    );
-    this.lastPrompt = built;
-    this.ui.onPromptBuilt?.(built);
-
-    await this.touchMemories(npc.id, built.selectedMemoryIds);
-
-    const requestId = generateId('req_');
-    this.activeRequestId = requestId;
+    // Claim the turn before any awaiting. Assembling context takes long enough for
+    // a second Enter press to start a parallel generation, and two streams then
+    // interleave into one reply bubble.
+    if (this.phase === 'generating') return;
     this.setPhase('generating');
 
-    const generation: GenerationConfig = {
-      maxNewTokens: CONVERSATION_CONFIG.maxNewTokens,
-      temperature: this.modelConfig.temperature,
-      topP: this.modelConfig.topP,
-      topK: this.modelConfig.topK,
-      doSample: true,
-    };
-
-    let npcText = '';
-
     try {
+      if (!this.languageModel.isReady()) {
+        const ok = await this.ensureModelReady();
+        if (!ok) return;
+      }
+
+      const playerTurn: DialogueTurn = {
+        role: 'player',
+        content: text.trim(),
+        at: this.getWorldTime(),
+      };
+      this.recordTurn(session, playerTurn);
+
+      const relationship = await this.loadRelationship(npc.id);
+
+      const context = await contextAssembler.assemble({
+        npc,
+        playerMessage: playerTurn.content,
+        worldTime: this.getWorldTime(),
+        formattedTime: this.getFormattedTime(),
+        relationship,
+      });
+
+      const recentForPrompt = session.turns.slice(0, -1);
+      const built = promptBuilder.build(
+        context,
+        recentForPrompt,
+        playerTurn.content,
+        this.modelConfig,
+      );
+      this.lastPrompt = built;
+      this.ui.onPromptBuilt?.(built);
+
+      await this.touchMemories(npc.id, built.selectedMemoryIds);
+
+      const requestId = generateId('req_');
+      this.activeRequestId = requestId;
+
+      const generation: GenerationConfig = {
+        maxNewTokens: CONVERSATION_CONFIG.maxNewTokens,
+        temperature: this.modelConfig.temperature,
+        topP: this.modelConfig.topP,
+        topK: this.modelConfig.topK,
+        doSample: true,
+      };
+
+      let npcText = '';
+
       await this.languageModel.generate(
         requestId,
         built.messages,
@@ -223,11 +257,32 @@ export class ConversationManager {
       this.setPhase('error');
       this.ui.onError(message);
     } finally {
-      if (this.activeRequestId === requestId) {
+      if (this.activeRequestId !== null) {
         this.activeRequestId = null;
       }
-      if (this.phase === 'generating') {
-        this.setPhase('ready');
+      // Only unwind a turn that is still ours: a generation error already moved
+      // the phase to 'error', and overwriting that would hide the failure.
+      if (this.phase === ('generating' as ConversationPhase)) {
+        this.setPhase(this.modelReady ? 'ready' : 'loading_model');
+      }
+    }
+  }
+
+  /**
+   * Append to both the prompt window and the full transcript.
+   *
+   * Keeping one bounded list for the prompt and one complete list for memory
+   * means a long conversation is distilled from everything that was said, not just
+   * the turns that happened to fit.
+   */
+  private recordTurn(session: ConversationSession, turn: DialogueTurn): void {
+    session.transcript.push(turn);
+
+    if (this.session === session) {
+      session.turns.push(turn);
+      const max = CONVERSATION_CONFIG.maxRecentTurns;
+      if (session.turns.length > max) {
+        session.turns = session.turns.slice(-max);
       }
     }
   }
@@ -240,23 +295,19 @@ export class ConversationManager {
   }
 
   private finishNpcTurn(fullText: string) {
-    if (!this.session || !fullText) return;
-    const turn: DialogueTurn = {
+    // A cancelled reply arrives after the panel closed; fall back to the session
+    // that was closing so a partial answer still reaches the transcript and is
+    // still available to memory formation.
+    const session = this.session ?? this.closingSession;
+    if (!session || !fullText) return;
+    this.recordTurn(session, {
       role: 'npc',
       content: fullText,
       at: this.getWorldTime(),
-    };
-    this.session.turns.push(turn);
-    this.trimRecentTurns();
+    });
     this.ui.onNpcReplyComplete(fullText);
-    this.setPhase('ready');
-  }
-
-  private trimRecentTurns() {
-    if (!this.session) return;
-    const max = CONVERSATION_CONFIG.maxRecentTurns;
-    if (this.session.turns.length > max) {
-      this.session.turns = this.session.turns.slice(-max);
+    if (this.session) {
+      this.setPhase(this.modelReady ? 'ready' : 'loading_model');
     }
   }
 
@@ -285,8 +336,13 @@ export class ConversationManager {
     const npc = npcRegistry.get(session.npcId);
     if (!npc) return;
 
-    const playerTurns = session.turns.filter((t) => t.role === 'player');
-    const totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
+    // A cancel in flight may still be appending to the transcript.
+    await this.cancelSettled;
+
+    // Distil the whole conversation, not just the prompt-sized window.
+    const transcript = session.transcript.length > 0 ? session.transcript : session.turns;
+    const playerTurns = transcript.filter((t) => t.role === 'player');
+    const totalChars = transcript.reduce((sum, t) => sum + t.content.length, 0);
 
     if (
       playerTurns.length < MEMORY_CONFIG.minPlayerTurns ||
@@ -318,7 +374,7 @@ export class ConversationManager {
     try {
       await this.languageModel.generate(
         generateId('extract_'),
-        buildExtractionMessages({ npc, turns: session.turns }),
+        buildExtractionMessages({ npc, turns: transcript }),
         extractionGenerationConfig(),
         (event) => {
           if (event.type === 'token') raw += event.text;

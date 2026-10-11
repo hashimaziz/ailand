@@ -17,6 +17,7 @@ export class DialoguePanel {
   private cancelBtn: HTMLButtonElement;
   private closeBtn: HTMLButtonElement;
   private statusEl: HTMLElement;
+  private noticeEl: HTMLElement;
   private errorEl: HTMLElement;
   private retryBtn: HTMLButtonElement;
   private handlers: DialoguePanelHandlers;
@@ -35,6 +36,7 @@ export class DialoguePanel {
         </header>
         <div class="dialogue-panel__transcript"></div>
         <div class="dialogue-panel__npc-line" aria-live="polite"></div>
+        <p class="dialogue-panel__notice"></p>
         <p class="dialogue-panel__status"></p>
         <p class="dialogue-panel__error" role="alert"></p>
         <div class="dialogue-panel__composer">
@@ -57,6 +59,7 @@ export class DialoguePanel {
     this.cancelBtn = this.root.querySelector('.dialogue-panel__cancel')!;
     this.closeBtn = this.root.querySelector('.dialogue-panel__close')!;
     this.statusEl = this.root.querySelector('.dialogue-panel__status')!;
+    this.noticeEl = this.root.querySelector('.dialogue-panel__notice')!;
     this.errorEl = this.root.querySelector('.dialogue-panel__error')!;
     this.retryBtn = this.root.querySelector('.dialogue-panel__retry')!;
 
@@ -88,6 +91,7 @@ export class DialoguePanel {
     this.npcBubbleEl.textContent = '';
     this.streamingNpc = '';
     this.clearError();
+    this.clearNotice();
     this.root.style.display = 'flex';
     this.inputEl.disabled = false;
     this.inputEl.focus();
@@ -162,6 +166,15 @@ export class DialoguePanel {
     this.errorEl.textContent = message;
     this.retryBtn.style.display = options?.showRetry ? 'inline-block' : 'none';
     this.setPhase('error');
+  }
+
+  /** Explain why the composer is unavailable, without implying an error. */
+  public showNotice(message: string): void {
+    this.noticeEl.textContent = message;
+  }
+
+  public clearNotice(): void {
+    this.noticeEl.textContent = '';
   }
 
   public clearError() {

@@ -1,5 +1,5 @@
 import { ChatMessage } from '../ai/LanguageModel';
-import { MEMORY_CONFIG } from '../config/gameConfig';
+import { LOCATION_LABELS, MEMORY_CONFIG } from '../config/gameConfig';
 import { Npc } from '../npc/types';
 import { DialogueTurn } from '../conversation/ConversationTypes';
 import {
@@ -56,7 +56,10 @@ export const MEMORY_EXTRACTION_SCHEMA = {
           confidence: { type: 'number', minimum: 0, maximum: 1 },
           source: { type: 'string', enum: ['player', 'npc', 'observation', 'inference'] },
           entities: { type: 'array', items: { type: 'string' }, maxItems: 6 },
-          locationId: { type: 'string' },
+          locationId: {
+            type: 'string',
+            enum: Object.keys(LOCATION_LABELS),
+          },
         },
       },
     },

@@ -131,6 +131,24 @@ A relationship is a small snapshot (`familiarity`, `trust`, `affection`,
 These bounds are the point. An LLM asked how a conversation felt will confidently
 propose `familiarity +0.9`; the policy decides what actually happens.
 
+## Recall quality rules
+
+Two asymmetries and two filters were added after observing real failures:
+
+- **Entity length is symmetric.** Memory entities come from the model and are
+  often three letters ("fox", "dog"). Filtering the player's message at four
+  characters while memories kept three made those memories permanently
+  unrecallable. Both sides now use the same three-character floor.
+- **Conversational words are not topics.** Entity overlap carries the largest
+  weight, so "like", "know", "think" being treated as entities made unrelated
+  memories match. The stop list is deliberately conversational.
+- **There is a relevance floor.** Every memory earns importance and recency score
+  regardless of the question, so without a floor a large memory store fills every
+  prompt — and the recall note restates the top two — with unrelated material.
+- **Personality restatements are not memories.** Extraction sometimes produced
+  "Maria is friendly and observant", which is already in every prompt. Candidates
+  made almost entirely of the NPC's own vocabulary are rejected.
+
 ## Retrieval
 
 Retrieval is deterministic and budgeted — see

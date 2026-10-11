@@ -205,7 +205,22 @@ export class App {
     this.dialoguePanel.open(target.name);
 
     if (!this.languageModel.isReady()) {
-      void this.conversationManager.ensureModelReady();
+      // Say why the composer is disabled, and offer a way out. A disabled input
+      // with no explanation is indistinguishable from a hung game.
+      this.dialoguePanel.showNotice(
+        'The language model is still loading. This can take a while on the first run.',
+      );
+      void this.conversationManager.ensureModelReady().then((ready) => {
+        if (ready) {
+          this.dialoguePanel.clearNotice();
+          return;
+        }
+        this.dialoguePanel.showError(
+          `${this.modelStatusNote || 'The language model is unavailable.'} ` +
+            'NPCs cannot reply until it loads. Close this panel to keep exploring.',
+          { showRetry: true },
+        );
+      });
     }
   }
 
@@ -228,16 +243,17 @@ export class App {
   }
 
   private refreshStatus() {
-    const phase = this.conversationManager?.getPhase?.() ?? 'idle';
-    const phaseLabel =
-      phase === 'generating'
-        ? ' | Talking…'
-        : phase === 'loading_model'
-          ? ' | Loading AI…'
-          : '';
     this.statusPanel.updateTime(
-      `${this.worldClock.getFormattedTime()}${phaseLabel}\n${this.modelStatusNote}`,
+      `${this.worldClock.getFormattedTime()}${this.phaseLabel()}\n${this.modelStatusNote}`,
     );
+  }
+
+  private phaseLabel(): string {
+    const phase = this.conversationManager?.getPhase?.() ?? 'idle';
+    if (phase === 'generating') return ' | Talking…';
+    if (phase === 'loading_model') return ' | Loading AI…';
+    if (phase === 'error') return ' | AI error';
+    return '';
   }
 
   private loop = (): void => {
@@ -247,11 +263,12 @@ export class App {
     this.lastFrameMs = now;
     
     this.worldClock.update(delta);
-    if (!this.conversationManager?.isOpen()) {
-      this.statusPanel.updateTime(
-        `${this.worldClock.getFormattedTime()}\n${this.modelStatusNote}`,
-      );
-    }
+    // Always refresh: skipping this while a panel is open let the phase label
+    // freeze at whatever it said when the panel opened, which is how a working
+    // conversation ended up labelled "Loading AI".
+    this.statusPanel.updateTime(
+      `${this.worldClock.getFormattedTime()}${this.phaseLabel()}\n${this.modelStatusNote}`,
+    );
     
     this.npcSimulation.update(delta);
     

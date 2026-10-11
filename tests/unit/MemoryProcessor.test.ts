@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   MemoryPersistence,
   MemoryProcessor,
+  isSelfDescription,
+  resolveLocationId,
   retentionScore,
 } from '../../src/memory/MemoryProcessor';
 import { MemoryCandidate } from '../../src/memory/MemoryTypes';
 import { Memory } from '../../src/memory/types';
 import { MEMORY_CONFIG } from '../../src/config/gameConfig';
 import { Npc } from '../../src/npc/types';
+import { fixtures } from '../../src/npc/fixtures';
 import { STRANGER_RELATIONSHIP } from '../../src/npc/Relationship';
 import { applySupersession } from '../../src/memory/MemoryStore';
 
@@ -301,6 +304,99 @@ describe('MemoryProcessor', () => {
     const persistence = new FakePersistence();
     const outcome = await run(persistence, [candidate()]);
     expect(outcome.relationship).toBeUndefined();
+  });
+});
+
+describe('isSelfDescription', () => {
+  // The real fixture, not the trimmed local one: this check is about the NPC's
+  // actual vocabulary, and a reduced personality gives a false negative.
+  const maria = fixtures[0];
+
+  it('rejects personality restatements', () => {
+    // Observed: "Maria is friendly and observant" was stored as a memory.
+    expect(isSelfDescription({
+      type: 'relationship',
+      content: 'Maria is friendly and observant.',
+      importance: 0.6,
+      confidence: 0.9,
+      source: 'observation',
+      entities: ['maria'],
+    }, maria)).toBe(true);
+  });
+
+  it('accepts a real memory about the player', () => {
+    expect(isSelfDescription({
+      type: 'episodic',
+      content: 'Alex moved into the apartments above the bakery.',
+      importance: 0.8,
+      confidence: 0.9,
+      source: 'player',
+      entities: ['alex'],
+    }, maria)).toBe(false);
+  });
+
+  it('accepts a memory about a third party', () => {
+    expect(isSelfDescription({
+      type: 'rumor',
+      content: 'David keeps the East Shop locked after dark.',
+      importance: 0.5,
+      confidence: 0.5,
+      source: 'npc',
+      entities: ['david'],
+    }, maria)).toBe(false);
+  });
+
+  it('is dropped before it reaches storage', async () => {
+    const persistence = new FakePersistence();
+    // run() uses the module's npc, whose traits are trimmed; give the processor
+    // the real Maria so this exercises the same vocabulary production has.
+    const outcome = await new MemoryProcessor(persistence).process({
+      npc: fixtures[0],
+      candidates: [{
+        type: 'relationship',
+        content: 'Maria is friendly and observant.',
+        importance: 0.7,
+        confidence: 0.9,
+        source: 'observation',
+        entities: ['maria'],
+      }],
+      relationshipUpdates: [],
+      currentRelationship: STRANGER_RELATIONSHIP,
+      worldTime: 100_000,
+    });
+
+    expect(outcome.proposals[0].decision).toBe('rejected');
+    expect(outcome.proposals[0].reasons.join(' ')).toContain('personality');
+    expect(await persistence.list('npc_1')).toHaveLength(0);
+  });
+});
+
+describe('resolveLocationId', () => {
+  it('accepts a known location id', () => {
+    expect(resolveLocationId('park', 'coffee-shop')).toBe('park');
+  });
+
+  it('accepts a known location label', () => {
+    expect(resolveLocationId('South Park', 'coffee-shop')).toBe('park');
+  });
+
+  it('is case insensitive', () => {
+    expect(resolveLocationId('COFFEE-SHOP', 'park')).toBe('coffee-shop');
+  });
+
+  it('normalises a display label back to its id', () => {
+    // Observed in practice: the model returned "West Coffee Shop" and it was
+    // stored verbatim, so the memory's locationId matched no location forever.
+    expect(resolveLocationId('West Coffee Shop', 'park')).toBe('coffee-shop');
+  });
+
+  it('falls back when the model invents a place', () => {
+    expect(resolveLocationId('the moon', 'park')).toBe('park');
+    expect(resolveLocationId('Maria\'s kitchen', 'park')).toBe('park');
+  });
+
+  it('falls back when nothing is proposed', () => {
+    expect(resolveLocationId(undefined, 'park')).toBe('park');
   });
 });
 

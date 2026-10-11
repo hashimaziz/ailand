@@ -410,7 +410,29 @@ Recorded per the instruction in the plan to document deviations as they arise.
     required a Node-side endpoint rather than anything in `src/`. It is dev- and
     preview-only by construction, so the static build still has no way to launch
     anything — stated in the UI rather than hidden.
-19. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
+19. **A full-path audit of the player↔NPC loop found more than the retrieval was
+    broken.** Several defects compounded into "NPCs reply oddly and forget": a
+    cached readiness flag that parked conversations in a loading phase; a session
+    reference read after an await, which threw if the panel was closed mid-turn;
+    no guard against two concurrent generations interleaving into one reply
+    bubble; memory formation distilling only the six turns that fit the prompt
+    window; a cancelled reply discarded before it reached the transcript; model
+    `locationId` values stored verbatim so they matched nothing; entity words
+    filtered by length on one side only, making three-letter memory entities
+    ("fox") permanently unrecallable; retrieval with no relevance floor; and
+    personality restatements stored as memories. Each is small; together they made
+    the system look broken in ways no single test would show.
+20. **The model regurgitated the system prompt.** Asked "Who am I?", a 1.5B model
+    answered with the prompt's own opening sentence, verbatim. The first line was
+    phrased as a self-description, which is exactly what that question invites.
+    The opening now describes the scene instead, and there is an explicit
+    instruction never to quote the instructions. Prompt-leak is the failure mode
+    small models fall into first on meta-questions.
+21. **Retrieval and compliance are separate failures.** Recall was measured
+    working — the memory was in the prompt — while the answer was sometimes still
+    wrong. Conversely "Who am I?" once answered about the NPC herself. Neither is
+    visible from a retrieval test alone.
+22. **`hidden` loses to `display` in CSS.** The startup screen's two phases are
     flex containers, so setting `.hidden = true` had no effect and both phases
     rendered at once. Fixed with a `[hidden] { display: none !important }` reset.
     Worth remembering for any future phase-based UI.
@@ -425,6 +447,9 @@ Recorded per the instruction in the plan to document deviations as they arise.
   prompt; the plan's memory-selectivity evaluation would not yet pass.
 - No end-to-end test suite; `playwright.config.ts` points at a `tests/e2e/`
   directory that does not exist yet. `?autoStart=1` exists for when it does.
+- A 1.5B model still contradicts itself within one conversation and occasionally
+  refers to the player in the third person. Those are model limits, not logic
+  errors, and need a larger model rather than more prompt work.
 - Forcing "local model" in a browser without WebGPU downloads the weights before
   failing, because the user explicitly asked to skip detection. The menu warns
   about this first, but it is still a wasted download.
