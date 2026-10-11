@@ -22,27 +22,13 @@ import {
   ModelInfo,
 } from './LanguageModel';
 import { ThinkingFilter } from './ThinkingFilter';
+import { timeoutSignal } from '../utils/fetch';
 
 export const DEFAULT_LLAMA_SERVER_URL = 'http://127.0.0.1:8080';
 
 export interface LlamaServerOptions {
   url?: string;
   requestTimeoutMs?: number;
-}
-
-/**
- * An abort signal that fires after `ms`.
- *
- * `AbortSignal.timeout` is not available everywhere — notably older Safari — so
- * fall back to a controller rather than throwing on a missing global.
- */
-export function timeoutSignal(ms: number): { signal: AbortSignal; done: () => void } {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return { signal: AbortSignal.timeout(ms), done: () => {} };
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  return { signal: controller.signal, done: () => clearTimeout(timer) };
 }
 
 // ─── Streaming decode ──────────────────────────────────────────────

@@ -99,13 +99,15 @@ async function ensureLlamaServer(
   if (status?.state === 'ready') return 'ready';
 
   if (status === null) {
-    // No launcher API: assume the user is running a server themselves.
+    // No launcher API. That only happens when the app is served by something
+    // other than our own dev server, so say that rather than implying the app is
+    // broken.
     const available = await isLlamaServerAvailable(config.llamaServerUrl);
     if (available) return 'unsupported';
     screen?.showLoadingError(
-      `No llama.cpp server answered at ${config.llamaServerUrl}, and this build cannot start one.\n\n` +
-        'Run `npm run dev` (which can manage the server for you), or start one yourself:\n' +
-        '  llama-server -m model.gguf --port 8080 -ngl 0\n\n' +
+      'This page was not served by the dev server, so it cannot start a llama.cpp server for you.\n\n' +
+        'Run `npm run dev` and open http://localhost:5173, or start a server yourself:\n' +
+        '  llama-server -m models/<model>.gguf --port 8080\n\n' +
         'Then press Try again, or use the mock model to keep playing.',
     );
     return 'failed';
@@ -149,10 +151,12 @@ async function main(): Promise<void> {
   // rather than letting the player find out after pressing Start. When the dev
   // server can manage one it also reports which models are available.
   const launcher = new LlamaLauncher();
-  const [reachable, launcherStatus] = await Promise.all([
+  const [reachable, launcherAvailable, launcherStatus] = await Promise.all([
     isLlamaServerAvailable(initial.llamaServerUrl),
+    launcher.isSupported(),
     launcher.status(),
   ]);
+  screen.setLauncherAvailable(launcherAvailable);
   screen.setLlamaServerStatus(reachable);
   if (launcherStatus?.availableModels?.length) {
     screen.setAvailableLlamaModels(launcherStatus.availableModels, initial.llamaModel);

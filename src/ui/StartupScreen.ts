@@ -306,6 +306,11 @@ export class StartupScreen {
     this.setStatus(available ? 'up' : 'down');
   }
 
+  public setLauncherAvailable(available: boolean): void {
+    this.launcherAvailable = available;
+    this.renderNote();
+  }
+
   /**
    * Offer every GGUF the dev server can see.
    *
@@ -339,6 +344,13 @@ export class StartupScreen {
   }
 
   private llamaServerStatus: 'idle' | 'checking' | 'up' | 'down' = 'idle';
+  /**
+   * Whether the dev server can launch the process for us.
+   *
+   * Decides whether a server that is not yet running is a non-event or a problem
+   * the player has to solve.
+   */
+  private launcherAvailable: boolean | null = null;
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
   private probeToken = 0;
 
@@ -501,23 +513,34 @@ export class StartupScreen {
     const warnings: string[] = [];
 
     if (config.runtime === 'llamaServer') {
-      notes.push(
-        `Talks to a llama.cpp server at ${config.llamaServerUrl}. The server supplies the model, so no download happens here.`,
-      );
-      const status =
-        this.llamaServerStatus === 'checking'
-          ? 'checking…'
-          : this.llamaServerStatus === 'up'
-            ? 'connected'
-            : this.llamaServerStatus === 'down'
-              ? 'not responding'
-              : 'not checked';
-      notes.push(`Server status: ${status}.`);
+      const connected = this.llamaServerStatus === 'up';
+      const managed = this.launcherAvailable === true;
 
-      if (this.llamaServerStatus === 'down') {
-        warnings.push(
-          `No llama.cpp server answered at ${config.llamaServerUrl}. Start one (docs/development.md) — this screen re-checks automatically — or use the in-browser runtime.`,
+      if (managed) {
+        // The dev server starts and stops it for us, so "not running yet" is the
+        // expected state before Start — not a problem to act on.
+        notes.push(
+          connected
+            ? 'Connected to a running llama.cpp server.'
+            : 'No server running yet — it is started for you when you press Start, and stopped again with the dev server.',
         );
+      } else {
+        notes.push(
+          `Uses a llama.cpp server at ${config.llamaServerUrl}. The server supplies the model, so nothing is downloaded.`,
+        );
+        const status =
+          this.llamaServerStatus === 'checking'
+            ? 'checking…'
+            : connected
+              ? 'connected'
+              : 'not running';
+        notes.push(`Server status: ${status}.`);
+
+        if (!connected) {
+          warnings.push(
+            'This is a static build, so it cannot start a server for you. Run `npm run dev` instead, or start one yourself: llama-server -m <model.gguf> --port 8080',
+          );
+        }
       }
       if (config.runBenchmark) {
         warnings.push('Benchmarking uses the in-browser models; the llama.cpp runtime is not benchmarked.');

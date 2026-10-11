@@ -340,19 +340,41 @@ describe('StartupScreen', () => {
     document.body.innerHTML = '';
   });
 
-  it('warns when no llama.cpp server answers', async () => {
+  it('treats a server that is not running yet as normal, not a problem', async () => {
+    // Before Start nothing is running, because the dev server starts it on
+    // demand. Telling the player to go and start one themselves was the bug.
     const live = new StartupScreen({ ...DEFAULT_APP_CONFIG }, () => {}, { probeLlama: async () => false });
+    live.setLauncherAvailable(true);
     const select = live.root.querySelector<HTMLSelectElement>('.startup__runtime')!;
     select.value = 'llamaServer';
     select.dispatchEvent(new Event('change'));
     await new Promise((r) => setTimeout(r, 450));
 
     const note = live.root.querySelector('.startup__note')!.textContent ?? '';
-    expect(note).toContain('not responding');
-    expect(live.root.querySelector('.startup__warning')!.textContent).toContain(
-      'No llama.cpp server answered',
-    );
+    expect(note).toContain('started for you when you press Start');
+    expect(note).not.toContain('not responding');
+    expect(live.root.querySelectorAll('.startup__warning')).toHaveLength(0);
     document.body.innerHTML = '';
+  });
+
+  it('says so when a running server is detected', () => {
+    screen.setLauncherAvailable(true);
+    screen.setLlamaServerStatus(true);
+    screen.root.querySelector<HTMLSelectElement>('.startup__runtime')!.value = 'llamaServer';
+    screen.root.querySelector<HTMLSelectElement>('.startup__runtime')!.dispatchEvent(new Event('change'));
+
+    expect(screen.root.querySelector('.startup__note')!.textContent).toContain('Connected');
+  });
+
+  it('warns only when a static build cannot start a server', () => {
+    screen.setLauncherAvailable(false);
+    screen.setLlamaServerStatus(false);
+    screen.root.querySelector<HTMLSelectElement>('.startup__runtime')!.value = 'llamaServer';
+    screen.root.querySelector<HTMLSelectElement>('.startup__runtime')!.dispatchEvent(new Event('change'));
+
+    const warning = screen.root.querySelector('.startup__warning')!.textContent ?? '';
+    expect(warning).toContain('static build');
+    expect(warning).toContain('npm run dev');
   });
 
   it('re-checks when the server URL changes', async () => {

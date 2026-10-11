@@ -28,6 +28,8 @@ export interface StartOptions {
   contextSize?: number;
 }
 
+import { delay, timeoutSignal } from '../utils/fetch';
+
 const ENDPOINT = '/__llama';
 
 async function readJson<T>(response: Response): Promise<T | null> {
@@ -45,23 +47,40 @@ export class LlamaLauncher {
     return `${this.baseUrl}${ENDPOINT}${path}`;
   }
 
-  /** Is the dev-server API present? Cheap enough to call on every page load. */
+  /**
+   * Is the dev-server API present?
+   *
+   * Retried once: the first request after `npm run dev` starts can outlast a
+   * single short timeout, and reporting "unsupported" then would send the player
+   * down the manual path for no reason.
+   */
   public async isSupported(): Promise<boolean> {
     if (typeof fetch !== 'function') return false;
-    try {
-      const response = await fetch(this.url('/status'), { signal: AbortSignal.timeout(1500) });
-      return response.ok;
-    } catch {
-      return false;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const timeout = timeoutSignal(2000);
+      try {
+        const response = await fetch(this.url('/status'), { signal: timeout.signal });
+        if (response.ok) return true;
+      } catch {
+        // Fall through and try once more.
+      } finally {
+        timeout.done();
+      }
+      if (attempt === 0) await delay(250);
     }
+    return false;
   }
 
   public async status(): Promise<LauncherStatus | null> {
+    const timeout = timeoutSignal(5000);
     try {
-      const response = await fetch(this.url('/status'), { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(this.url('/status'), { signal: timeout.signal });
       return await readJson<LauncherStatus>(response);
     } catch {
       return null;
+    } finally {
+      timeout.done();
     }
   }
 
@@ -138,8 +157,4 @@ export function portFromUrl(url: string): number | undefined {
   } catch {
     return undefined;
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
