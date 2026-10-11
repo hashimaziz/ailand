@@ -132,9 +132,13 @@ export function llamaServerPlugin(options: LlamaPluginOptions = {}): Plugin {
       '--port', String(port),
       '--host', '127.0.0.1',
       '-c', String(contextSize),
-      // CPU by default: the point of this runtime is machines that cannot spare
-      // GPU memory.
-      '-ngl', process.env.AILAND_LLAMA_NGL ?? '0',
+      // -ngl is deliberately omitted: llama.cpp defaults it to `auto`, which
+      // offloads as much as fits (Metal on macOS) and falls back to CPU when it
+      // cannot. Hard-coding it to 0 forced CPU and roughly halved generation
+      // speed. Set AILAND_LLAMA_NGL to override.
+      ...(process.env.AILAND_LLAMA_NGL
+        ? ['-ngl', process.env.AILAND_LLAMA_NGL]
+        : []),
       ...(payload.extraArgs ?? []),
     ];
 

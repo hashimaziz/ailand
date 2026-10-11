@@ -86,8 +86,11 @@ server is shut down when the dev server exits.
 To manage it by hand instead:
 
 ```bash
-llama-server -m ~/path/to/model.gguf --port 8080 --host 127.0.0.1 -c 4096 -ngl 0
+llama-server -m ~/path/to/model.gguf --port 8080 --host 127.0.0.1 -c 4096
 ```
+
+Leave `-ngl` alone: it defaults to `auto`, which uses Metal on macOS and falls
+back to CPU only when it must.
 
 The screen still works either way: selecting the option probes the server and
 reports `checking…` / `connected` / `not responding`, and re-selecting (or editing
@@ -101,7 +104,7 @@ Configuration:
 | `AILAND_LLAMA_MODEL` | Path to a GGUF file, instead of scanning `models/` |
 | `AILAND_LLAMA_MODELS_DIR` | Directory to scan for `.gguf` (default `models`) |
 | `AILAND_LLAMA_BIN` | Path to the binary, if not on PATH as `llama-server` |
-| `AILAND_LLAMA_NGL` | GPU layers; `0` (default) keeps it on the CPU, `99` uses Metal |
+| `AILAND_LLAMA_NGL` | GPU layer count. Unset by default, which is right: llama.cpp defaults `-ngl` to `auto` and Metal is on by default on macOS. Set `0` to force CPU. |
 
 The server handles **one request at a time** by default. Memory extraction runs
 after a conversation closes, in the background, so it can still be in flight when
@@ -124,9 +127,18 @@ generated tokens:
 | --- | --- | --- |
 | Qwen2.5-3B-Instruct Q4_K_M | 106 / **59 tok/s** | 901 / **94 tok/s** |
 
-CPU is usable for dialogue — a one-to-three-sentence reply is 30–60 tokens, so
-about a second. Metal is worth setting via `AILAND_LLAMA_NGL=99`, mostly because
-it cuts prompt processing roughly ninefold.
+The plugin does **not** pass `-ngl`, because llama.cpp already defaults it to
+`auto` and enables Metal by default on macOS. Forcing it to `0` was a mistake that
+cost about half the generation speed (59 → 130 tok/s). Unset, this machine does:
+
+| Setting | generation |
+| --- | --- |
+| `-ngl 0` (forced CPU) | 59 tok/s |
+| `-ngl 99` | 94 tok/s |
+| default (`auto`) | **130 tok/s** |
+
+Either way, dialogue is comfortable: a one-to-three-sentence reply is 30–60 tokens,
+so around half a second of generation.
 
 Good small instruct models in GGUF, verified present on Hugging Face:
 `bartowski/Qwen2.5-3B-Instruct-GGUF` (Q4_K_M, 1840 MB),
