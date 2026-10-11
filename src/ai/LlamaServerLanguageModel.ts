@@ -204,7 +204,9 @@ export class LlamaServerLanguageModel implements LanguageModel {
       // The server is up; not being able to list models is not fatal.
     }
 
-    this.info = { id, device: 'cpu', dtype: 'gguf', loadTimeMs: 0 };
+    // "cpu" would be a lie: llama.cpp offloads to Metal by default and decides
+    // for itself. The runtime is local either way.
+    this.info = { id, device: 'local', dtype: 'gguf', loadTimeMs: 0 };
     this.ready = true;
     return this.info;
   }

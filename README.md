@@ -17,51 +17,98 @@ recognize you — without the conversation feeling like a scripted state machine
 
 - TypeScript (strict), Vite
 - Three.js `WebGPURenderer` with WebGL2 fallback
-- Transformers.js in a Web Worker for local WebGPU inference
+- llama.cpp (`llama-server`) for local inference — the recommended path
+- Transformers.js in a Web Worker as an in-browser alternative
 - IndexedDB (`idb`) for persistence
 - Vitest for unit tests, Playwright for browser tests
 
-## Getting Started
+## Run it
+
+The recommended setup runs the language model on your own machine via
+[llama.cpp](https://github.com/ggml-org/llama.cpp). It needs no browser support
+for AI, handles models that are too large for WebGPU, and makes the NPCs markedly
+better. About 10 minutes, most of it downloading.
+
+### 1. Requirements
+
+- Node 18 or newer
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) installed, so that
+  `llama-server` is on your `PATH`:
+  ```bash
+  brew install llama.cpp        # macOS
+  # or: https://github.com/ggml-org/llama.cpp/releases for other platforms
+  ```
+
+### 2. Install
 
 ```bash
+git clone <this-repo> ai-city && cd ai-city
 npm install
+```
+
+### 3. Put a model in `models/`
+
+Download an **instruct** GGUF — a base model cannot hold a conversation. Then:
+
+```bash
+mkdir -p models
+curl -L -o models/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf
+```
+
+That is 1.8 GB and is the one used throughout this project's testing. To keep it
+outside the repo instead, set `AILAND_LLAMA_MODEL=/path/to/model.gguf`.
+
+### 4. Start it
+
+```bash
 npm run dev
 ```
 
-Open `http://localhost:5173` and choose your settings on the startup screen.
+Open `http://localhost:5173`. On the startup screen:
 
-**Supported browser: recent Chromium-based Chrome or Edge.** Local inference is
-built and tested against Chromium with WebGPU. Safari's WebGPU is newer and less
-tested, and large models there commonly fail to allocate GPU memory — see
-[Troubleshooting](#troubleshooting) below if that happens.
+- **Model runtime** → *Local llama.cpp server*
+- **Local model** → your `.gguf` (it lists what it found)
+- Press **Start**
 
-The dialogue model is a few hundred megabytes and is downloaded on first use and
-cached by the browser. The world is fully explorable while it downloads.
+You do **not** start `llama-server` yourself. The dev server launches it, shows
+its progress while it boots, and shuts it down when you stop the dev server. The
+world loads only once the model can answer.
 
-### Choosing a model
+### 5. Play
 
-The app opens on a startup screen. Pick a model, where it comes from (automatic,
-local, or a scripted mock), where inference runs (GPU or CPU), and press Start.
-Each option shows its download size up front, and the model is fetched and
-initialised *before* the world loads — with byte-level progress, so a slow
-download is visibly making progress rather than looking frozen.
+Click the canvas to capture the mouse, then:
 
-**Model runtime** is also a choice. *In this browser* needs no setup. *Local
-llama.cpp server* lifts the GPU-memory ceiling, allows a 1.5B–3B model instead of
-0.6B, and supports schema-constrained decoding so memory extraction is reliable.
+| Input | Action |
+| --- | --- |
+| `WASD` | Move |
+| Mouse | Look |
+| `E` | Talk to the NPC you are facing |
+| `Esc` | Close a conversation |
+| `Enter` | Send the typed message |
 
-Under `npm run dev` the app **starts and stops the server for you**: drop a GGUF
-file in `models/`, pick the option, press Start. It reports progress while the
-server boots and only loads the world once the model can answer. See
-[`docs/development.md`](docs/development.md#the-local-llamacpp-runtime).
+Walk north from the spawn point until `[E] Talk to Maria` appears. After a
+conversation, expand the **Memory** panel in the bottom-left to see exactly what
+she chose to remember, and why.
 
-**Inference** and **Rendering** are separate because GPU memory is the scarce
-resource. Inference can run on the CPU via WASM, which is slower but does not
-touch the GPU at all; rendering can be forced to WebGL2, which stops Three.js
-holding a second WebGPU device while the model loads.
+To try the prototype's whole point, tell her your name and where you live, close
+the conversation, reload the page, and ask again: she should know.
 
-If the model cannot load, the startup screen stays up with the reason and offers a
-retry or a switch to the mock model, so you are never stuck.
+### Running it without a local model
+
+Pick **In this browser** on the startup screen instead. Transformers.js downloads
+the weights into the browser and runs them on WebGPU, with a CPU (WASM) fallback.
+No setup, but the models that fit are small and the NPCs are noticeably weaker —
+use it for UI work and for tests. `?mockAi=1` (or choosing the **mock** source)
+skips the download entirely and uses scripted replies.
+
+### Automation
+
+```bash
+npx vitest run                      # unit tests, no model download
+?mockAi=1&autoStart=1               # boot straight into the mock model
+?runtime=llama&autoStart=1          # boot straight into the local model
+```
 
 ### URL flags
 
